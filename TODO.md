@@ -39,7 +39,7 @@
   - Checkpoint saving every 1000 steps
   - Mixed precision training
 
-- [ ] **Evaluation** (`scripts/evaluate.py`)
+- [x] **Evaluation** (`scripts/evaluate.py`)
   - Exact match accuracy
   - Token-level accuracy
   - Inference on test set
@@ -83,4 +83,4 @@
 
 ## Current Priority
 
-Phase 3: Next priority is evaluation script (`scripts/evaluate.py`).
+Phase 4: Next priority is unit tests (`tests/`) for core components.

@@ -55,6 +55,10 @@ IMPORTANT: Make sure to update TODO.md before checking anything in!
 - Don't catch exceptions unless you plan to handle them meaningfully
 - Use `raise NewException(...) from e` instead of logging and re-raising
 
+### Common Type Issues
+
+- When pyright complains about PyTorch Dataset not being Sized, use `cast(Sized, dataset)` from typing
+
 ## Project Goals
 
 1. Start with single-digit addition: "3+5=8<end>"

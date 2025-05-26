@@ -121,9 +121,62 @@ Training generates several output files in the checkpoint directory:
 
 ### Evaluation
 
+The evaluation script computes exact match accuracy and token-level accuracy on test data:
+
 ```bash
-python scripts/evaluate.py --checkpoint checkpoints/best_model.pt
+# Basic evaluation on test set (final model)
+python scripts/evaluate.py --checkpoint checkpoints/model.safetensors
+
+# Evaluate specific checkpoint
+python scripts/evaluate.py --checkpoint checkpoints/checkpoint-1000/model.safetensors
+
+# Evaluate specific data file
+python scripts/evaluate.py \
+  --checkpoint checkpoints/model.safetensors \
+  --data-path data/custom_test.json
+
+# Custom model size and batch size
+python scripts/evaluate.py \
+  --checkpoint checkpoints/model.safetensors \
+  --model-size medium \
+  --batch-size 128
+
+# Save results to file
+python scripts/evaluate.py \
+  --checkpoint checkpoints/model.safetensors \
+  --output-file results.json
 ```
+
+#### Evaluation Arguments
+
+**Required:**
+
+- `--checkpoint`: Path to model checkpoint file
+
+**Model Configuration:**
+
+- `--model-size`: Model size (`small`, `medium`, `large`) - default: `small`
+
+**Data Options:**
+
+- `--data-path`: Specific evaluation data file (overrides `--data-dir`)
+- `--data-dir`: Directory containing test.json - default: `data`
+
+**Evaluation Settings:**
+
+- `--batch-size`: Evaluation batch size - default: `64`
+- `--max-length`: Maximum sequence length - default: `32`
+- `--output-file`: Save results to JSON file
+
+**System:**
+
+- `--device`: Device to use (`cuda`, `cpu`, `auto`) - default: `auto`
+
+#### Metrics
+
+- **Exact Match Accuracy**: Percentage of completely correct arithmetic answers
+- **Token-Level Accuracy**: Per-token prediction accuracy during teacher forcing
+- **Number of Examples**: Total examples evaluated
 
 ## Model Details
 
