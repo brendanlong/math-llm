@@ -11,6 +11,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from .tokenizer import MAX_SEQUENCE_LENGTH, VOCAB_SIZE
+
 
 class PositionalEncoding(nn.Module):
     """Sinusoidal positional encoding for transformer inputs."""
@@ -106,18 +108,18 @@ class ArithmeticModel(nn.Module):
 
     def __init__(
         self,
-        vocab_size: int = 13,
+        vocab_size: int = VOCAB_SIZE,
         d_model: int = 256,
         n_layers: int = 4,
         n_heads: int = 4,
         d_ff: int = 1024,
-        max_seq_len: int = 32,
+        max_seq_len: int = MAX_SEQUENCE_LENGTH,
         dropout: float = 0.1,
     ):
         """Initialize the arithmetic model.
 
         Args:
-            vocab_size: Size of vocabulary (default 13 for arithmetic)
+            vocab_size: Size of vocabulary (default from tokenizer)
             d_model: Model dimension
             n_layers: Number of transformer layers
             n_heads: Number of attention heads
@@ -290,12 +292,10 @@ class ArithmeticModel(nn.Module):
 def create_small_model() -> ArithmeticModel:
     """Create a small model configuration (~1M parameters)."""
     return ArithmeticModel(
-        vocab_size=13,
         d_model=256,
         n_layers=4,
         n_heads=4,
         d_ff=512,
-        max_seq_len=32,
         dropout=0.1,
     )
 
@@ -303,12 +303,10 @@ def create_small_model() -> ArithmeticModel:
 def create_medium_model() -> ArithmeticModel:
     """Create a medium model configuration (~5M parameters)."""
     return ArithmeticModel(
-        vocab_size=13,
         d_model=512,
         n_layers=6,
         n_heads=8,
         d_ff=1024,
-        max_seq_len=32,
         dropout=0.1,
     )
 
@@ -316,11 +314,9 @@ def create_medium_model() -> ArithmeticModel:
 def create_large_model() -> ArithmeticModel:
     """Create a large model configuration (~10M parameters)."""
     return ArithmeticModel(
-        vocab_size=13,
         d_model=512,
         n_layers=8,
         n_heads=8,
         d_ff=2048,
-        max_seq_len=32,
         dropout=0.1,
     )

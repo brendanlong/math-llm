@@ -1,6 +1,6 @@
 # Math LLM
 
-A minimal transformer model for learning basic arithmetic operations, starting with single-digit addition.
+A minimal transformer model for learning basic arithmetic operations with chain-of-thought reasoning, starting with single-digit addition and scaling to multi-digit problems.
 
 ## Quick Start
 
@@ -77,7 +77,7 @@ python scripts/train.py --output-dir checkpoints/experiment1
 **Model Configuration:**
 
 - `--model-size`: Model size (`small`, `medium`, `large`) - default: `small`
-- `--max-length`: Maximum sequence length - default: `32`
+- `--max-length`: Maximum sequence length - default: `128`
 
 **Training Hyperparameters:**
 
@@ -169,7 +169,7 @@ python scripts/evaluate.py \
 **Evaluation Settings:**
 
 - `--batch-size`: Evaluation batch size - default: `64`
-- `--max-length`: Maximum sequence length - default: `32`
+- `--max-length`: Maximum sequence length - default: `128`
 - `--output-file`: Save results to JSON file
 
 **System:**
@@ -241,9 +241,12 @@ The interactive script accepts various input formats:
 ## Model Details
 
 - **Architecture**: Small transformer decoder (1M-10M parameters)
-- **Vocabulary**: 12 tokens (digits 0-9, +, =, <end>)
-- **Task**: Next-token prediction on arithmetic expressions
-- **Format**: `"operand1+operand2=result<end>"`
+- **Vocabulary**: 16 tokens (digits 0-9, +, =, <end>, <think>, </think>, \n)
+- **Context Length**: 128 tokens (sufficient for chain-of-thought reasoning)
+- **Task**: Next-token prediction on arithmetic expressions with reasoning
+- **Formats**:
+  - Simple: `"3+5=8<end>"`
+  - With reasoning: `"658+189=<think>\n8+9=17\n5+8=14\n6+1=8</think>847<end>"`
 
 ## Hardware Requirements
 

@@ -89,6 +89,30 @@ def load_model(checkpoint_path: Path, model_size: str) -> ArithmeticModel:
     return model
 
 
+def parse_reasoning_output(text: str) -> tuple[str, str, str]:
+    """Parse model output to separate reasoning from answer.
+
+    Args:
+        text: Full model output text
+
+    Returns:
+        Tuple of (prefix, reasoning, answer)
+    """
+    # Find thinking tags
+    think_start = text.find("<think>")
+    think_end = text.find("</think>")
+
+    if think_start == -1 or think_end == -1:
+        # No reasoning found
+        return text, "", ""
+
+    prefix = text[:think_start]
+    reasoning = text[think_start + 7 : think_end]  # Skip "<think>"
+    answer = text[think_end + 8 :]  # Skip "</think>"
+
+    return prefix, reasoning, answer
+
+
 def interactive_session(
     model: ArithmeticModel,
     tokenizer: ArithmeticTokenizer,
@@ -96,7 +120,7 @@ def interactive_session(
     max_new_tokens: int = 20,
     temperature: float = 0.1,
 ) -> None:
-    """Run interactive inference session.
+    """Run interactive inference session with chain-of-thought display.
 
     Args:
         model: Loaded model
@@ -112,7 +136,7 @@ def interactive_session(
     print("Enter arithmetic expressions for the model to complete.")
     print("Examples:")
     print("  '3+5=' → model completes with '8<end>'")
-    print("  '12+34=' → model completes with '46<end>'")
+    print("  '12+34=' → model shows reasoning and completes with '46<end>'")
     print("  '7+' → model completes with operand and result")
     print("\nType 'quit' or 'exit' to stop.")
     print("=" * 40)
@@ -165,9 +189,27 @@ def interactive_session(
                 # Extract just the completion part
                 if generated_text.startswith(user_input):
                     completion = generated_text[len(user_input) :]
-                    print(
-                        f"✨ Model completion: '{user_input}' → '{user_input}{completion}'"
-                    )
+
+                    # Parse reasoning from completion
+                    prefix, reasoning, answer = parse_reasoning_output(completion)
+
+                    if reasoning:
+                        # Display reasoning and answer separately
+                        print("🤔 Chain of thought:")
+                        # Format reasoning nicely with proper newlines
+                        reasoning_lines = reasoning.replace("\\n", "\n").split("\n")
+                        for line in reasoning_lines:
+                            if line.strip():
+                                print(f"   {line}")
+
+                        print(f"✨ Final answer: {prefix}{answer}")
+                        print(
+                            f"📝 Complete: '{user_input}' → '{user_input}{completion}'"
+                        )
+                    else:
+                        print(
+                            f"✨ Model completion: '{user_input}' → '{user_input}{completion}'"
+                        )
                 else:
                     print(f"✨ Model output: '{generated_text}'")
 

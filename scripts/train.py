@@ -157,7 +157,7 @@ def main() -> None:
     parser.add_argument(
         "--max-length",
         type=int,
-        default=32,
+        default=128,
         help="Maximum sequence length",
     )
 

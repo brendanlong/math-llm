@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate arithmetic training data for the math LLM.
+"""Generate arithmetic training data for the math LLM with chain-of-thought reasoning.
 
 This script generates addition problems of varying complexity in the format:
-"operand1+operand2=result<end>"
+- Simple: "3+5=8<end>"
+- With reasoning: "658+189=<think>8+9=17\n5+8=14\n6+1=8</think>847<end>"
 
 Supports single-digit through multi-digit addition (up to 10 digits) with
 a distribution that ensures simpler examples remain well-represented.
@@ -12,75 +13,15 @@ The data is saved as JSON files with train/validation/test splits (80/10/10).
 
 import argparse
 import json
-import random
 import sys
 from pathlib import Path
 
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
 
+from src.generation import generate_addition_examples, split_data
 from src.tokenizer import ArithmeticTokenizer
 from src.types import DatasetDict
-
-
-def generate_addition_examples(
-    num_examples: int, max_digits: int = 8, seed: int = 42
-) -> list[str]:
-    """Generate addition examples with uniform distribution across digit lengths.
-
-    Args:
-        num_examples: Number of examples to generate
-        max_digits: Maximum number of digits per operand (1-8)
-        seed: Random seed for reproducibility
-
-    Returns:
-        List of arithmetic expressions in format "a+b=c<end>"
-    """
-    random.seed(seed)
-    examples = []
-
-    for _ in range(num_examples):
-        # Generate each operand independently with random digit count
-        num_digits_a = random.randint(1, max_digits)
-        num_digits_b = random.randint(1, max_digits)
-
-        # Generate operands (0 to 10^digits - 1)
-        a = random.randint(10 ** (num_digits_a - 1), 10**num_digits_a - 1)
-        b = random.randint(10 ** (num_digits_b - 1), 10**num_digits_b - 1)
-
-        result = a + b
-        example = f"{a}+{b}={result}<end>"
-        examples.append(example)
-
-    return examples
-
-
-def split_data(
-    examples: list[str], train_ratio: float = 0.8, val_ratio: float = 0.1
-) -> tuple[list[str], list[str], list[str]]:
-    """Split data into train/validation/test sets.
-
-    Args:
-        examples: List of examples to split
-        train_ratio: Fraction for training set
-        val_ratio: Fraction for validation set (test gets remainder)
-
-    Returns:
-        Tuple of (train_examples, val_examples, test_examples)
-    """
-    total = len(examples)
-    train_size = int(total * train_ratio)
-    val_size = int(total * val_ratio)
-
-    # Shuffle examples before splitting
-    shuffled = examples.copy()
-    random.shuffle(shuffled)
-
-    train_examples = shuffled[:train_size]
-    val_examples = shuffled[train_size : train_size + val_size]
-    test_examples = shuffled[train_size + val_size :]
-
-    return train_examples, val_examples, test_examples
 
 
 def save_dataset(examples: list[str], output_path: Path, split_name: str) -> None:
@@ -101,7 +42,7 @@ def save_dataset(examples: list[str], output_path: Path, split_name: str) -> Non
             "split": split_name,
             "num_examples": len(examples),
             "vocab_size": tokenizer.vocab_size,
-            "format": "operand1+operand2=result<end>",
+            "format": "operand1+operand2=<think>...</think>result<end>",
         },
     }
 

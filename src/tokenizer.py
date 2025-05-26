@@ -1,36 +1,47 @@
-"""Custom character-level tokenizer for arithmetic expressions.
+"""Custom character-level tokenizer for arithmetic expressions with reasoning.
 
-This tokenizer handles a vocabulary of 12 tokens:
+This tokenizer handles a vocabulary of 16 tokens:
 - Digits: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
 - Operators: +, =
 - Special: <end>
+- Reasoning: <think>, </think>
+- Formatting: \n (newline)
 """
 
 from typing import Any, Union
+
+# Vocabulary mapping for arithmetic expressions with reasoning
+V = {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "+": 10,
+    "=": 11,
+    "<end>": 12,
+    "<think>": 13,
+    "</think>": 14,
+    "\n": 15,
+}
+
+# Constants derived from vocabulary
+VOCAB_SIZE = len(V)
+MAX_SEQUENCE_LENGTH = 128
 
 
 class ArithmeticTokenizer:
     """Character-level tokenizer for arithmetic expressions."""
 
+    vocab = V
+
     def __init__(self):
         """Initialize the tokenizer with arithmetic vocabulary."""
-        # Define vocabulary: digits + operators + special tokens
-        self.vocab = {
-            "0": 0,
-            "1": 1,
-            "2": 2,
-            "3": 3,
-            "4": 4,
-            "5": 5,
-            "6": 6,
-            "7": 7,
-            "8": 8,
-            "9": 9,
-            "+": 10,
-            "=": 11,
-            "<end>": 12,
-        }
-
         # Create reverse mapping for decoding
         self.id_to_token = {v: k for k, v in self.vocab.items()}
 
@@ -40,7 +51,7 @@ class ArithmeticTokenizer:
     @property
     def vocab_size(self) -> int:
         """Return the vocabulary size."""
-        return len(self.vocab)
+        return VOCAB_SIZE
 
     def encode(self, text: str) -> list[int]:
         """Encode text to token IDs.
@@ -57,8 +68,14 @@ class ArithmeticTokenizer:
         tokens = []
         i = 0
         while i < len(text):
-            # Check for special token first
-            if text[i : i + 5] == "<end>":
+            # Check for multi-character special tokens first
+            if text[i : i + 8] == "</think>":
+                tokens.append(self.vocab["</think>"])
+                i += 8
+            elif text[i : i + 7] == "<think>":
+                tokens.append(self.vocab["<think>"])
+                i += 7
+            elif text[i : i + 5] == "<end>":
                 tokens.append(self.vocab["<end>"])
                 i += 5
             elif text[i] in self.vocab:
@@ -101,7 +118,14 @@ class ArithmeticTokenizer:
         tokens = []
         i = 0
         while i < len(text):
-            if text[i : i + 5] == "<end>":
+            # Check for multi-character special tokens first
+            if text[i : i + 8] == "</think>":
+                tokens.append("</think>")
+                i += 8
+            elif text[i : i + 7] == "<think>":
+                tokens.append("<think>")
+                i += 7
+            elif text[i : i + 5] == "<end>":
                 tokens.append("<end>")
                 i += 5
             elif text[i] in self.vocab:

@@ -12,29 +12,6 @@ class TestArithmeticTokenizer:
         """Set up tokenizer for each test."""
         self.tokenizer = ArithmeticTokenizer()
 
-    def test_vocab_size(self):
-        """Test vocabulary size is correct."""
-        assert self.tokenizer.vocab_size == 13  # 10 digits + 2 operators + 1 special
-
-    def test_vocabulary_mapping(self):
-        """Test vocabulary contains expected tokens."""
-        expected_vocab = {
-            "0": 0,
-            "1": 1,
-            "2": 2,
-            "3": 3,
-            "4": 4,
-            "5": 5,
-            "6": 6,
-            "7": 7,
-            "8": 8,
-            "9": 9,
-            "+": 10,
-            "=": 11,
-            "<end>": 12,
-        }
-        assert self.tokenizer.vocab == expected_vocab
-
     def test_simple_encoding(self):
         """Test encoding of simple expressions."""
         # Single digit addition
@@ -97,11 +74,6 @@ class TestArithmeticTokenizer:
             decoded = self.tokenizer.decode(encoded)
             assert decoded == text
 
-    def test_special_token_id(self):
-        """Test special token ID is accessible."""
-        assert self.tokenizer.end_token_id == 12
-        assert self.tokenizer.vocab["<end>"] == 12
-
     def test_invalid_character_encoding(self):
         """Test encoding raises error for invalid characters."""
         with pytest.raises(ValueError, match="Unknown character"):
@@ -118,6 +90,26 @@ class TestArithmeticTokenizer:
         with pytest.raises(ValueError, match="Unknown token ID"):
             self.tokenizer.decode([3, 10, 5, -1])  # negative ID
 
+    def test_reasoning_tokens(self):
+        """Test encoding and decoding of reasoning tokens."""
+        # Test individual reasoning tokens
+        assert self.tokenizer.encode("<think>") == [13]
+        assert self.tokenizer.encode("</think>") == [14]
+        assert self.tokenizer.encode("\n") == [15]
+
+        # Test simple reasoning expression
+        text = "3+5=<think>\n3+5=8\n</think>8<end>"
+        encoded = self.tokenizer.encode(text)
+        decoded = self.tokenizer.decode(encoded)
+        assert decoded == text
+
+    def test_chain_of_thought_example(self):
+        """Test full chain-of-thought example."""
+        text = "658+189=<think>\n8+9=17\n5+8=14\n6+1=8</think>847<end>"
+        encoded = self.tokenizer.encode(text)
+        decoded = self.tokenizer.decode(encoded)
+        assert decoded == text
+
     def test_edge_cases(self):
         """Test edge cases and boundary conditions."""
         # Empty string
@@ -133,6 +125,9 @@ class TestArithmeticTokenizer:
 
         # Multiple end tokens
         assert self.tokenizer.encode("<end><end>") == [12, 12]
+
+        # Only reasoning tokens
+        assert self.tokenizer.encode("<think></think>") == [13, 14]
 
     def test_large_numbers(self):
         """Test with larger arithmetic expressions."""

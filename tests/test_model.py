@@ -10,7 +10,7 @@ from src.model import (
     create_medium_model,
     create_small_model,
 )
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import MAX_SEQUENCE_LENGTH, VOCAB_SIZE, ArithmeticTokenizer
 
 
 class TestPositionalEncoding:
@@ -66,9 +66,11 @@ class TestArithmeticModel:
 
     def test_init_default(self):
         """Test model initialization with default parameters."""
+
         model = ArithmeticModel()
         assert model.d_model == 256
-        assert model.max_seq_len == 32
+        assert model.max_seq_len == MAX_SEQUENCE_LENGTH
+        assert model.token_embedding.num_embeddings == VOCAB_SIZE
         assert len(model.layers) == 4
 
     def test_init_custom(self):
@@ -197,11 +199,13 @@ class TestModelFactories:
 
     def test_all_models_same_vocab_size(self):
         """Test that all model factories use correct vocab size."""
+        from src.tokenizer import VOCAB_SIZE
+
         models = [create_small_model(), create_medium_model(), create_large_model()]
 
         for model in models:
-            assert model.token_embedding.num_embeddings == 13
-            assert model.lm_head.out_features == 13
+            assert model.token_embedding.num_embeddings == VOCAB_SIZE
+            assert model.lm_head.out_features == VOCAB_SIZE
 
 
 class TestModelIntegration:

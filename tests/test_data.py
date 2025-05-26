@@ -26,14 +26,33 @@ def sample_data() -> list[dict[str, str]]:
         {"expression": "7+1=8<end>"},
         {"expression": "4+6=10<end>"},
         {"expression": "9+0=9<end>"},
+        {"expression": "12+34=<think>\n2+4=6\n6\n1+3=4\n4\n</think>46<end>"},
     ]
 
 
 @pytest.fixture
 def temp_data_file(sample_data: list[dict[str, str]]) -> Path:
-    """Create a temporary JSON file with sample data."""
+    """Create a temporary JSON file with sample data in new format."""
+    tokenizer = ArithmeticTokenizer()
+    dataset = {
+        "examples": [
+            {
+                "text": item["expression"],
+                "tokens": tokenizer.encode(item["expression"]),
+                "length": len(tokenizer.encode(item["expression"])),
+            }
+            for item in sample_data
+        ],
+        "metadata": {
+            "split": "test",
+            "num_examples": len(sample_data),
+            "vocab_size": tokenizer.vocab_size,
+            "format": "operand1+operand2=<think>...</think>result<end>",
+        },
+    }
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(sample_data, f)
+        json.dump(dataset, f)
         return Path(f.name)
 
 
@@ -123,10 +142,26 @@ class TestArithmeticDataset:
     def test_truncation(self, tokenizer: ArithmeticTokenizer) -> None:
         """Test that long sequences are properly truncated."""
         # Create a very long expression
-        long_data = [{"expression": "1+2=3<end>" * 10}]  # Much longer than 32 tokens
+        long_expression = "1+2=3<end>" * 10  # Much longer than 32 tokens
+
+        dataset = {
+            "examples": [
+                {
+                    "text": long_expression,
+                    "tokens": tokenizer.encode(long_expression),
+                    "length": len(tokenizer.encode(long_expression)),
+                }
+            ],
+            "metadata": {
+                "split": "test",
+                "num_examples": 1,
+                "vocab_size": tokenizer.vocab_size,
+                "format": "operand1+operand2=<think>...</think>result<end>",
+            },
+        }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(long_data, f)
+            json.dump(dataset, f)
             temp_file = Path(f.name)
 
         dataset = ArithmeticDataset(temp_file, tokenizer, max_length=32)
@@ -175,10 +210,26 @@ class TestDataLoader:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
 
-            # Create split files
+            # Create split files in new format
             for split in ["train", "val", "test"]:
+                dataset = {
+                    "examples": [
+                        {
+                            "text": item["expression"],
+                            "tokens": tokenizer.encode(item["expression"]),
+                            "length": len(tokenizer.encode(item["expression"])),
+                        }
+                        for item in sample_data
+                    ],
+                    "metadata": {
+                        "split": split,
+                        "num_examples": len(sample_data),
+                        "vocab_size": tokenizer.vocab_size,
+                        "format": "operand1+operand2=<think>...</think>result<end>",
+                    },
+                }
                 with open(temp_path / f"{split}.json", "w") as f:
-                    json.dump(sample_data, f)
+                    json.dump(dataset, f)
 
             # Load splits
             train_loader, val_loader, test_loader = load_splits(

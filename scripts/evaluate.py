@@ -212,7 +212,7 @@ def evaluate_on_dataset(
     tokenizer: ArithmeticTokenizer,
     device: torch.device,
     batch_size: int = 64,
-    max_length: int = 32,
+    max_length: int = 128,
 ) -> dict[str, float]:
     """Evaluate model on a dataset.
 

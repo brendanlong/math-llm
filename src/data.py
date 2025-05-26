@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from .tokenizer import ArithmeticTokenizer
+from .tokenizer import MAX_SEQUENCE_LENGTH, ArithmeticTokenizer
 from .types import DatasetDict
 
 
@@ -20,7 +20,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         self,
         data_path: str | Path,
         tokenizer: ArithmeticTokenizer,
-        max_length: int = 32,
+        max_length: int = MAX_SEQUENCE_LENGTH,
     ):
         """Initialize dataset.
 
@@ -86,7 +86,7 @@ def create_dataloader(
     tokenizer: ArithmeticTokenizer,
     batch_size: int = 32,
     shuffle: bool = True,
-    max_length: int = 32,
+    max_length: int = MAX_SEQUENCE_LENGTH,
     num_workers: int = 0,
 ) -> DataLoader[dict[str, torch.Tensor]]:
     """Create a DataLoader for arithmetic expressions.
@@ -119,7 +119,7 @@ def load_splits(
     data_dir: str | Path,
     tokenizer: ArithmeticTokenizer,
     batch_size: int = 32,
-    max_length: int = 32,
+    max_length: int = MAX_SEQUENCE_LENGTH,
     num_workers: int = 0,
 ) -> tuple[
     DataLoader[dict[str, torch.Tensor]],
