@@ -28,7 +28,7 @@
 
 ## Phase 3: Training Infrastructure
 
-- [ ] **Data loading** (`src/data.py`)
+- [x] **Data loading** (`src/data.py`)
   - PyTorch Dataset and DataLoader
   - Proper tokenization and padding
   - Efficient batching
@@ -83,4 +83,4 @@
 
 ## Current Priority
 
-Phase 2: Next priority is model architecture (`src/model.py`).
+Phase 3: Next priority is training script (`scripts/train.py`).
