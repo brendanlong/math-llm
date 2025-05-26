@@ -11,7 +11,7 @@ def generate_chain_of_thought(a: int, b: int) -> str:
         b: Second operand
 
     Returns:
-        Chain-of-thought reasoning string
+        Chain-of-thought reasoning string with multi-digit thinking tokens
     """
     str_a = str(a)
     str_b = str(b)
@@ -25,7 +25,7 @@ def generate_chain_of_thought(a: int, b: int) -> str:
     str_a = str_a.zfill(max_len)
     str_b = str_b.zfill(max_len)
 
-    reasoning = ["<think>"]
+    reasoning = ["<think_digit>"]
     carry = 0
 
     # Work from right to left
@@ -51,7 +51,7 @@ def generate_chain_of_thought(a: int, b: int) -> str:
         # Update carry for next iteration
         carry = sum_digits // 10 if sum_digits >= 10 else 0
 
-    reasoning.append("</think>")
+    reasoning.append("</think_digit>")
     return "".join(reasoning)
 
 
@@ -62,14 +62,14 @@ def generate_recursive_chain_of_thought(operands: list[int]) -> str:
         operands: List of operands to add (e.g., [3, 5, 2])
 
     Returns:
-        Chain-of-thought reasoning string showing recursive addition with nested <think> tags
+        Chain-of-thought reasoning string showing recursive addition with nested thinking tags
     """
     if len(operands) < 3:
         # For 2 operands, use original chain-of-thought
         return generate_chain_of_thought(operands[0], operands[1])
 
     # For 3+ operands, show recursive left-to-right addition
-    reasoning = ["<think>"]
+    reasoning = ["<think_multi>"]
 
     # Start with first operand
     current_sum = operands[0]
@@ -80,17 +80,17 @@ def generate_recursive_chain_of_thought(operands: list[int]) -> str:
         # Show the addition step
         reasoning.append(f"\n{current_sum}+{next_operand}=")
 
-        # Get the reasoning for this step (with nested <think> tags if multi-digit)
+        # Get the reasoning for this step (with nested thinking tags if multi-digit)
         step_reasoning = generate_chain_of_thought(current_sum, next_operand)
         if step_reasoning:
-            # Keep the nested <think> tags for recursive reasoning
+            # Keep the nested thinking tags for recursive reasoning
             reasoning.append(step_reasoning)
 
         # Calculate and show the result
         current_sum = current_sum + next_operand
         reasoning.append(str(current_sum))
 
-    reasoning.append("</think>")
+    reasoning.append("</think_multi>")
     return "".join(reasoning)
 
 
@@ -109,8 +109,8 @@ def generate_addition_examples(
         include_three_operands: Whether to include 3-operand examples
 
     Returns:
-        List of arithmetic expressions in format "a+b=<think>...</think>c<end>"
-        or "a+b+c=<think>...</think>d<end>" with recursive reasoning
+        List of arithmetic expressions in format "a+b=<think_digit>...</think_digit>c<end>"
+        or "a+b+c=<think_multi>...</think_multi>d<end>" with recursive reasoning
     """
     random.seed(seed)
     examples = []

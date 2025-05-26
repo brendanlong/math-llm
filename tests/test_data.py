@@ -26,7 +26,9 @@ def sample_data() -> list[dict[str, str]]:
         {"expression": "7+1=8<end>"},
         {"expression": "4+6=10<end>"},
         {"expression": "9+0=9<end>"},
-        {"expression": "12+34=<think>\n2+4=6\n6\n1+3=4\n4\n</think>46<end>"},
+        {
+            "expression": "12+34=<think_digit>\n2+4=6\n6\n1+3=4\n4\n</think_digit>46<end>"
+        },
     ]
 
 
@@ -47,7 +49,7 @@ def temp_data_file(sample_data: list[dict[str, str]]) -> Path:
             "split": "test",
             "num_examples": len(sample_data),
             "vocab_size": tokenizer.vocab_size,
-            "format": "operand1+operand2=<think>...</think>result<end>",
+            "format": "operand1+operand2=<think_digit>...</think_digit>result<end>",
         },
     }
 
@@ -156,7 +158,7 @@ class TestArithmeticDataset:
                 "split": "test",
                 "num_examples": 1,
                 "vocab_size": tokenizer.vocab_size,
-                "format": "operand1+operand2=<think>...</think>result<end>",
+                "format": "operand1+operand2=<think_digit>...</think_digit>result<end>",
             },
         }
 
@@ -225,7 +227,7 @@ class TestDataLoader:
                         "split": split,
                         "num_examples": len(sample_data),
                         "vocab_size": tokenizer.vocab_size,
-                        "format": "operand1+operand2=<think>...</think>result<end>",
+                        "format": "operand1+operand2=<think_digit>...</think_digit>result<end>",
                     },
                 }
                 with open(temp_path / f"{split}.json", "w") as f:

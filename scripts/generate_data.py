@@ -3,7 +3,7 @@
 
 This script generates addition problems of varying complexity in the format:
 - Simple: "3+5=8<end>"
-- With reasoning: "658+189=<think>8+9=17\n5+8+1=14\n6+1+1=8</think>847<end>"
+- With reasoning: "658+189=<think_digit>8+9=17\n5+8+1=14\n6+1+1=8</think_digit>847<end>"
 
 Supports single-digit through multi-digit addition (up to 10 digits) with
 a distribution that ensures simpler examples remain well-represented.
@@ -42,7 +42,7 @@ def save_dataset(examples: list[str], output_path: Path, split_name: str) -> Non
             "split": split_name,
             "num_examples": len(examples),
             "vocab_size": tokenizer.vocab_size,
-            "format": "operand1+operand2=<think>...</think>result<end>",
+            "format": "operand1+operand2=<think_digit>...</think_digit>result<end> or operand1+operand2+operand3=<think_multi>...</think_multi>result<end>",
         },
     }
 

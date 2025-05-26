@@ -4,81 +4,81 @@
 # ---
 # name: test_chain_of_thought_snapshots.1
   '''
-  <think>
+  <think_digit>
   2+4=6
-  1+3=4</think>
+  1+3=4</think_digit>
   '''
 # ---
 # name: test_chain_of_thought_snapshots.2
   '''
-  <think>
+  <think_digit>
   8+7=15
-  2+1+1=<think>
+  2+1+1=<think_multi>
   2+1=3
-  3+1=4</think>4</think>
+  3+1=4</think_multi>4</think_digit>
   '''
 # ---
 # name: test_chain_of_thought_snapshots.3
   '''
-  <think>
+  <think_digit>
   8+9=17
-  5+8+1=<think>
+  5+8+1=<think_multi>
   5+8=13
-  13+1=<think>
+  13+1=<think_digit>
   3+1=4
-  1+0=1</think>14</think>14
-  6+1+1=<think>
+  1+0=1</think_digit>14</think_multi>14
+  6+1+1=<think_multi>
   6+1=7
-  7+1=8</think>8</think>
+  7+1=8</think_multi>8</think_digit>
   '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots
   '''
-  <think>
+  <think_digit>
   8+7=15
-  2+1+1=<think>
+  2+1+1=<think_multi>
   2+1=3
-  3+1=4</think>4</think>
+  3+1=4</think_multi>4</think_digit>
   '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots.1
   '''
-  <think>
+  <think_multi>
   3+5=8
-  8+2=10</think>
+  8+2=10</think_multi>
   '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots.2
   '''
-  <think>
-  28+17=<think>
+  <think_multi>
+  28+17=<think_digit>
   8+7=15
-  2+1+1=<think>
+  2+1+1=<think_multi>
   2+1=3
-  3+1=4</think>4</think>45
-  45+94=<think>
+  3+1=4</think_multi>4</think_digit>45
+  45+94=<think_digit>
   5+4=9
-  4+9=13</think>139</think>
+  4+9=13</think_digit>139</think_multi>
   '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots.3
   '''
-  <think>
-  658+189=<think>
+  <think_multi>
+  658+189=<think_digit>
   8+9=17
-  5+8+1=<think>
+  5+8+1=<think_multi>
   5+8=13
-  13+1=<think>
+  13+1=<think_digit>
   3+1=4
-  1+0=1</think>14</think>14
-  6+1+1=<think>
+  1+0=1</think_digit>14</think_multi>14
+  6+1+1=<think_multi>
   6+1=7
-  7+1=8</think>8</think>847
-  847+234=<think>
+  7+1=8</think_multi>8</think_digit>847
+  847+234=<think_digit>
   7+4=11
-  4+3+1=<think>
+  4+3+1=<think_multi>
   4+3=7
-  7+1=8</think>8
-  8+2=10</think>1081</think>
+  7+1=8</think_multi>8
+  8+2=10</think_digit>1081</think_multi>
   '''
 # ---

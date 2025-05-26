@@ -10,18 +10,18 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 
 - **Type**: Decoder-only transformer (GPT-style)
 - **Size**: Small model (~1M-10M parameters) to fit RTX3060 constraints
-- **Context Length**: 128 tokens (sufficient for chain-of-thought reasoning in expressions like "658+189=<think>...<\/think>847<end>")
+- **Context Length**: 128 tokens (sufficient for chain-of-thought reasoning in expressions like "658+189=<think_digit>...<\/think_digit>847<end>")
 - **Layers**: 4-8 transformer blocks
 - **Hidden Size**: 256-512 dimensions
 - **Attention Heads**: 4-8 heads
 
 ### Tokenization
 
-- **Vocabulary**: Character-level tokenization with 16 tokens:
+- **Vocabulary**: Character-level tokenization with 18 tokens:
   - Digits: `0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`
   - Operators: `+`, `=`
   - Special: `<end>` (sequence terminator)
-  - Reasoning: `<think>`, `</think>` (chain-of-thought delimiters)
+  - Reasoning: `<think_digit>`, `</think_digit>` (multi-digit chain-of-thought), `<think_multi>`, `</think_multi>` (multi-operand chain-of-thought)
   - Formatting: `\n` (newline for reasoning steps)
 - **Rationale**: Simple, interpretable, and supports explicit reasoning
 - **Padding**: Uses end tokens for fixed-length sequences
@@ -30,12 +30,12 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 
 - **Training Examples**: Support both simple and reasoning formats
 - **Simple Examples**: `"3+5=8<end>"` (single-digit, no reasoning needed)
-- **Reasoning Examples**: `"658+189=<think>\n8+9=17\n5+8+1=14\n6+1+1=8</think>847<end>"`
+- **Reasoning Examples**: `"658+189=<think_digit>\n8+9=17\n5+8+1=14\n6+1+1=8</think_digit>847<end>"`
 - **Chain-of-Thought**: Shows step-by-step column addition for multi-digit problems
 - **Progression**:
   1. Single-digit: `"3+5=8<end>"`
-  2. Multi-digit with reasoning: `"12+34=<think>\n2+4=6\n1+3=4</think>46<end>"`
-  3. Complex problems: `"658+189=<think>\n8+9=17\n5+8+1=14\n6+1+1=8</think>847<end>"`
+  2. Multi-digit with reasoning: `"12+34=<think_digit>\n2+4=6\n1+3=4</think_digit>46<end>"`
+  3. Complex problems: `"658+189=<think_digit>\n8+9=17\n5+8+1=14\n6+1+1=8</think_digit>847<end>"`
 
 ### Training Strategy
 
@@ -56,7 +56,7 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 ### Chain-of-Thought Reasoning
 
 - **Approach**: Explicit step-by-step reasoning for multi-digit addition
-- **Format**: `<think>` and `</think>` delimiters around reasoning steps
+- **Format**: `<think_digit>`/`</think_digit>` delimiters for multi-digit reasoning, `<think_multi>`/`</think_multi>` for multi-operand reasoning
 - **Steps**: Shows column addition from right to left with carry operations
 - **Benefits**:
   - Improved interpretability of model decisions

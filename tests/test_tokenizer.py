@@ -93,19 +93,27 @@ class TestArithmeticTokenizer:
     def test_reasoning_tokens(self):
         """Test encoding and decoding of reasoning tokens."""
         # Test individual reasoning tokens
-        assert self.tokenizer.encode("<think>") == [13]
-        assert self.tokenizer.encode("</think>") == [14]
-        assert self.tokenizer.encode("\n") == [15]
+        assert self.tokenizer.encode("<think_multi>") == [13]
+        assert self.tokenizer.encode("</think_multi>") == [14]
+        assert self.tokenizer.encode("<think_digit>") == [15]
+        assert self.tokenizer.encode("</think_digit>") == [16]
+        assert self.tokenizer.encode("\n") == [17]
 
-        # Test simple reasoning expression
-        text = "3+5=<think>\n3+5=8\n</think>8<end>"
+        # Test simple multi-digit reasoning expression
+        text = "3+5=<think_digit>\n3+5=8\n</think_digit>8<end>"
+        encoded = self.tokenizer.encode(text)
+        decoded = self.tokenizer.decode(encoded)
+        assert decoded == text
+
+        # Test simple multi-operand reasoning expression
+        text = "3+5+2=<think_multi>\n3+5=8\n8+2=10\n</think_multi>10<end>"
         encoded = self.tokenizer.encode(text)
         decoded = self.tokenizer.decode(encoded)
         assert decoded == text
 
     def test_chain_of_thought_example(self):
         """Test full chain-of-thought example."""
-        text = "658+189=<think>\n8+9=17\n5+8=14\n6+1=8</think>847<end>"
+        text = "658+189=<think_digit>\n8+9=17\n5+8=14\n6+1=8</think_digit>847<end>"
         encoded = self.tokenizer.encode(text)
         decoded = self.tokenizer.decode(encoded)
         assert decoded == text
@@ -127,7 +135,8 @@ class TestArithmeticTokenizer:
         assert self.tokenizer.encode("<end><end>") == [12, 12]
 
         # Only reasoning tokens
-        assert self.tokenizer.encode("<think></think>") == [13, 14]
+        assert self.tokenizer.encode("<think_multi></think_multi>") == [13, 14]
+        assert self.tokenizer.encode("<think_digit></think_digit>") == [15, 16]
 
     def test_large_numbers(self):
         """Test with larger arithmetic expressions."""

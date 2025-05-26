@@ -92,25 +92,42 @@ def load_model(checkpoint_path: Path, model_size: str) -> ArithmeticModel:
 def parse_reasoning_output(text: str) -> tuple[str, str, str]:
     """Parse model output to separate reasoning from answer.
 
+    Handles both <think_digit> and <think_multi> reasoning sections.
+
     Args:
         text: Full model output text
 
     Returns:
         Tuple of (prefix, reasoning, answer)
     """
-    # Find thinking tags
-    think_start = text.find("<think>")
-    think_end = text.find("</think>")
+    # Find digit thinking tags first
+    think_digit_start = text.find("<think_digit>")
+    think_digit_end = text.find("</think_digit>")
 
-    if think_start == -1 or think_end == -1:
-        # No reasoning found
-        return text, "", ""
+    # Find multi thinking tags
+    think_multi_start = text.find("<think_multi>")
+    think_multi_end = text.find("</think_multi>")
 
-    prefix = text[:think_start]
-    reasoning = text[think_start + 7 : think_end]  # Skip "<think>"
-    answer = text[think_end + 8 :]  # Skip "</think>"
+    # Choose the earliest thinking section found
+    if think_digit_start != -1 and think_digit_end != -1:
+        if think_multi_start == -1 or think_digit_start < think_multi_start:
+            prefix = text[:think_digit_start]
+            reasoning = text[
+                think_digit_start + 13 : think_digit_end
+            ]  # Skip "<think_digit>"
+            answer = text[think_digit_end + 14 :]  # Skip "</think_digit>"
+            return prefix, reasoning, answer
 
-    return prefix, reasoning, answer
+    if think_multi_start != -1 and think_multi_end != -1:
+        prefix = text[:think_multi_start]
+        reasoning = text[
+            think_multi_start + 13 : think_multi_end
+        ]  # Skip "<think_multi>"
+        answer = text[think_multi_end + 14 :]  # Skip "</think_multi>"
+        return prefix, reasoning, answer
+
+    # No reasoning found
+    return text, "", ""
 
 
 def interactive_session(

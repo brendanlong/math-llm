@@ -241,12 +241,12 @@ The interactive script accepts various input formats:
 ## Model Details
 
 - **Architecture**: Small transformer decoder (1M-10M parameters)
-- **Vocabulary**: 16 tokens (digits 0-9, +, =, <end>, <think>, </think>, \n)
+- **Vocabulary**: 18 tokens (digits 0-9, +, =, <end>, <think_digit>, </think_digit>, <think_multi>, </think_multi>, \n)
 - **Context Length**: 128 tokens (sufficient for chain-of-thought reasoning)
 - **Task**: Next-token prediction on arithmetic expressions with reasoning
 - **Formats**:
   - Simple: `"3+5=8<end>"`
-  - With reasoning: `"658+189=<think>\n8+9=17\n5+8+1=14\n6+1+1=8</think>847<end>"`
+  - With reasoning: `"658+189=<think_digit>\n8+9=17\n5+8+1=14\n6+1+1=8</think_digit>847<end>"`
 
 ## Hardware Requirements
 

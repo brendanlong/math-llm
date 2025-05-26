@@ -1,10 +1,11 @@
 """Custom character-level tokenizer for arithmetic expressions with reasoning.
 
-This tokenizer handles a vocabulary of 16 tokens:
+This tokenizer handles a vocabulary of 18 tokens:
 - Digits: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
 - Operators: +, =
 - Special: <end>
-- Reasoning: <think>, </think>
+- Multi-operand reasoning: <think_multi>, </think_multi>
+- Multi-digit reasoning: <think_digit>, </think_digit>
 - Formatting: \n (newline)
 """
 
@@ -25,9 +26,11 @@ V = {
     "+": 10,
     "=": 11,
     "<end>": 12,
-    "<think>": 13,
-    "</think>": 14,
-    "\n": 15,
+    "<think_multi>": 13,
+    "</think_multi>": 14,
+    "<think_digit>": 15,
+    "</think_digit>": 16,
+    "\n": 17,
 }
 
 # Constants derived from vocabulary
@@ -68,12 +71,18 @@ class ArithmeticTokenizer:
         i = 0
         while i < len(text):
             # Check for multi-character special tokens first
-            if text[i : i + 8] == "</think>":
-                tokens.append(self.vocab["</think>"])
-                i += 8
-            elif text[i : i + 7] == "<think>":
-                tokens.append(self.vocab["<think>"])
-                i += 7
+            if text[i : i + 14] == "</think_multi>":
+                tokens.append(self.vocab["</think_multi>"])
+                i += 14
+            elif text[i : i + 13] == "<think_multi>":
+                tokens.append(self.vocab["<think_multi>"])
+                i += 13
+            elif text[i : i + 14] == "</think_digit>":
+                tokens.append(self.vocab["</think_digit>"])
+                i += 14
+            elif text[i : i + 13] == "<think_digit>":
+                tokens.append(self.vocab["<think_digit>"])
+                i += 13
             elif text[i : i + 5] == "<end>":
                 tokens.append(self.vocab["<end>"])
                 i += 5
@@ -118,12 +127,18 @@ class ArithmeticTokenizer:
         i = 0
         while i < len(text):
             # Check for multi-character special tokens first
-            if text[i : i + 8] == "</think>":
-                tokens.append("</think>")
-                i += 8
-            elif text[i : i + 7] == "<think>":
-                tokens.append("<think>")
-                i += 7
+            if text[i : i + 14] == "</think_multi>":
+                tokens.append("</think_multi>")
+                i += 14
+            elif text[i : i + 13] == "<think_multi>":
+                tokens.append("<think_multi>")
+                i += 13
+            elif text[i : i + 14] == "</think_digit>":
+                tokens.append("</think_digit>")
+                i += 14
+            elif text[i : i + 13] == "<think_digit>":
+                tokens.append("<think_digit>")
+                i += 13
             elif text[i : i + 5] == "<end>":
                 tokens.append("<end>")
                 i += 5

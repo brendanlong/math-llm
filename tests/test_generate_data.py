@@ -24,20 +24,20 @@ class TestChainOfThought:
         """Test that multi-digit addition generates reasoning."""
         reasoning = generate_chain_of_thought(12, 34)
         assert reasoning != ""
-        assert "<think>" in reasoning
-        assert "</think>" in reasoning
+        assert "<think_digit>" in reasoning
+        assert "</think_digit>" in reasoning
 
     def test_reasoning_format(self):
         """Test the format of generated reasoning."""
         reasoning = generate_chain_of_thought(25, 17)
 
         # Should include recursive thinking for carries
-        assert reasoning.startswith("<think>")
-        assert reasoning.endswith("</think>")
+        assert reasoning.startswith("<think_digit>")
+        assert reasoning.endswith("</think_digit>")
         assert "5+7=12" in reasoning
         assert "2+1+1=" in reasoning
         # Should have nested thinking for the carry
-        assert reasoning.count("<think>") >= 2
+        assert reasoning.count("<think_multi>") >= 1
 
     def test_carry_reasoning(self):
         """Test reasoning with carry operations."""
@@ -48,8 +48,8 @@ class TestChainOfThought:
 
         # Multi-digit with carry should have recursive thinking
         reasoning = generate_chain_of_thought(18, 9)
-        assert reasoning.startswith("<think>")
-        assert reasoning.endswith("</think>")
+        assert reasoning.startswith("<think_digit>")
+        assert reasoning.endswith("</think_digit>")
         assert "8+9=17" in reasoning
         assert "1+0+1=" in reasoning
 
@@ -58,25 +58,25 @@ class TestChainOfThought:
         reasoning = generate_chain_of_thought(658, 189)
 
         # Should have nested thinking for carries
-        assert reasoning.startswith("<think>")
-        assert reasoning.endswith("</think>")
+        assert reasoning.startswith("<think_digit>")
+        assert reasoning.endswith("</think_digit>")
         assert "8+9=17" in reasoning
         assert "5+8+1=" in reasoning
         assert "6+1+1=" in reasoning
         # Should have multiple levels of nesting
-        assert reasoning.count("<think>") > 1
+        assert reasoning.count("<think_multi>") > 1
 
     def test_large_numbers(self):
         """Test reasoning with larger numbers."""
         reasoning = generate_chain_of_thought(999, 999)
 
         # Should have nested thinking for all the carries
-        assert reasoning.startswith("<think>")
-        assert reasoning.endswith("</think>")
+        assert reasoning.startswith("<think_digit>")
+        assert reasoning.endswith("</think_digit>")
         assert "9+9=18" in reasoning
         assert "9+9+1=" in reasoning
         # Should have recursive thinking
-        assert reasoning.count("<think>") > 1
+        assert reasoning.count("<think_multi>") > 1
 
 
 class TestDataGeneration:
@@ -105,7 +105,10 @@ class TestDataGeneration:
         assert len(examples) == 10
 
         # Some should have reasoning (multi-digit cases)
-        has_reasoning = any("<think>" in example for example in examples)
+        has_reasoning = any(
+            "<think_digit>" in example or "<think_multi>" in example
+            for example in examples
+        )
         assert has_reasoning
 
     def test_example_validity(self):
@@ -122,10 +125,14 @@ class TestDataGeneration:
             assert decoded == example
 
             # Extract the arithmetic expression
-            if "<think>" in example:
+            if "<think_digit>" in example:
                 # Remove reasoning part for validation
-                problem = example.split("=<think>")[0] + "="
-                answer_part = example.split("</think>")[-1].replace("<end>", "")
+                problem = example.split("=<think_digit>")[0] + "="
+                answer_part = example.split("</think_digit>")[-1].replace("<end>", "")
+            elif "<think_multi>" in example:
+                # Remove reasoning part for validation
+                problem = example.split("=<think_multi>")[0] + "="
+                answer_part = example.split("</think_multi>")[-1].replace("<end>", "")
             else:
                 problem = example.replace("<end>", "")
                 answer_part = problem.split("=")[1]
@@ -180,7 +187,7 @@ class TestDataGeneration:
         )
 
         for example in examples:
-            if "<think>" not in example:
+            if "<think_digit>" not in example and "<think_multi>" not in example:
                 continue
 
             # Parse the example - handle 2-operand only
@@ -192,7 +199,10 @@ class TestDataGeneration:
             a, b = int(operands[0]), int(operands[1])
 
             # Extract answer after reasoning
-            answer_part = example.split("</think>")[-1].replace("<end>", "")
+            if "</think_digit>" in example:
+                answer_part = example.split("</think_digit>")[-1].replace("<end>", "")
+            else:
+                answer_part = example.split("</think_multi>")[-1].replace("<end>", "")
             result = int(answer_part)
 
             # Verify arithmetic
@@ -234,17 +244,27 @@ class TestDataGeneration:
             if problem.count("+") != 2:  # Skip 2-operand examples
                 continue
 
-            # Extract the arithmetic expression
-            if "<think>" in example:
-                problem = example.split("=<think>")[0] + "="
-                answer_part = example.split("</think>")[-1].replace("<end>", "")
+            # Extract the arithmetic expression - get the problem part before any thinking
+            problem_part = example.split("=")[0]
+
+            # Extract the final answer after all thinking
+            # Find the last closing thinking tag and get everything after it
+            last_close_multi = example.rfind("</think_multi>")
+            last_close_digit = example.rfind("</think_digit>")
+
+            if last_close_multi > last_close_digit:
+                answer_part = example[
+                    last_close_multi + len("</think_multi>") :
+                ].replace("<end>", "")
+            elif last_close_digit >= 0:
+                answer_part = example[
+                    last_close_digit + len("</think_digit>") :
+                ].replace("<end>", "")
             else:
-                problem = example.replace("<end>", "")
-                answer_part = problem.split("=")[1]
-                problem = problem.split("=")[0] + "="
+                answer_part = example.split("=")[1].replace("<end>", "")
 
             # Parse operands and result
-            operands = problem.replace("=", "").split("+")
+            operands = problem_part.split("+")
             a, b, c = int(operands[0]), int(operands[1]), int(operands[2])
             result = int(answer_part)
 
@@ -265,8 +285,8 @@ class TestRecursiveChainOfThought:
         """Test structure of 3-operand recursive reasoning."""
         result = generate_recursive_chain_of_thought([3, 5, 2])
 
-        assert result.startswith("<think>")
-        assert result.endswith("</think>")
+        assert result.startswith("<think_multi>")
+        assert result.endswith("</think_multi>")
         assert "3+5=" in result
         assert "8+2=" in result
         assert "10" in result  # Final answer
@@ -275,9 +295,9 @@ class TestRecursiveChainOfThought:
         """Test that complex recursive operations have nested thinking."""
         result = generate_recursive_chain_of_thought([28, 17, 94])
 
-        # Should have nested <think> tags for multi-digit additions
-        assert result.count("<think>") > 1
-        assert result.count("</think>") > 1
+        # Should have nested thinking tags for multi-digit additions
+        assert result.count("<think_multi>") >= 1
+        assert result.count("<think_digit>") >= 1
         assert "28+17=" in result
         assert "45+94=" in result
 
