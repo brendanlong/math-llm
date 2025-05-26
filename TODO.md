@@ -8,9 +8,9 @@
 - [x] Create directory structure
 
 ## Phase 2: Core Components
-- [ ] **Custom tokenizer** (`src/tokenizer.py`)
+- [x] **Custom tokenizer** (`src/tokenizer.py`)
   - Character-level tokenizer for digits, +, =, <end>
-  - Vocabulary size: 12 tokens
+  - Vocabulary size: 13 tokens
   - Encode/decode methods
   
 - [ ] **Data generation** (`scripts/generate_data.py`)
@@ -76,4 +76,4 @@
 - [ ] Interactive inference demo
 
 ## Current Priority
-Start with Phase 1 project setup, then move to Phase 2 tokenizer implementation.
+Phase 2: Next priority is data generation script (`scripts/generate_data.py`).

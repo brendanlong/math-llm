@@ -48,7 +48,8 @@ ruff check --fix .
 ### Type Hints
 - All function signatures must include type hints
 - Use `torch.Tensor` for tensor types
-- Use `typing` module for complex types
+- Prefer built-in types (`list`, `dict`, `tuple`) over `typing` imports when available (Python 3.9+)
+- Use `typing` module only for complex types like `Union`, `Optional`, `Callable`
 
 ### Documentation
 - Docstrings for all public functions and classes
