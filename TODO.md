@@ -15,7 +15,7 @@
   - Vocabulary size: 13 tokens
   - Encode/decode methods
 
-- [ ] **Data generation** (`scripts/generate_data.py`)
+- [x] **Data generation** (`scripts/generate_data.py`)
   - Generate arithmetic expressions: "a+b=c<end>"
   - Start with single-digit addition
   - Save to disk for reproducibility
@@ -83,4 +83,4 @@
 
 ## Current Priority
 
-Phase 2: Next priority is data generation script (`scripts/generate_data.py`).
+Phase 2: Next priority is model architecture (`src/model.py`).

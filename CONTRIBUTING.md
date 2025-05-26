@@ -58,6 +58,7 @@ ruff check --fix .
 - Use `torch.Tensor` for tensor types
 - Prefer built-in types (`list`, `dict`, `tuple`) over `typing` imports when available (Python 3.9+)
 - Use `typing` module only for complex types like `Union`, `Optional`, `Callable`
+- For complex dictionary structures, use `TypedDict` instead of `dict[str, Any]` to provide explicit type safety
 
 ### Documentation
 
