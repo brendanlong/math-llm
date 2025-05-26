@@ -4,7 +4,9 @@
 This is a machine learning project training a small transformer model to perform basic arithmetic (starting with addition). The codebase uses Python with PyTorch and HuggingFace Transformers.
 
 ## Key Documentation Files
-IMPORTANT: Always read these files before starting!
+
+IMPORTANT: ALWAYS read these files before starting!
+
 - **README.md**: Project overview, quick start, and usage instructions
 - **DESIGN.md**: Architecture decisions, model specifications, and technical details
 - **CONTRIBUTING.md**: Development setup, code quality standards, and ML guidelines
