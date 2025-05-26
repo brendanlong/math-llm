@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Generate arithmetic training data for the math LLM.
 
-This script generates single-digit addition problems in the format:
+This script generates addition problems of varying complexity in the format:
 "operand1+operand2=result<end>"
+
+Supports single-digit through multi-digit addition (up to 10 digits) with
+a distribution that ensures simpler examples remain well-represented.
 
 The data is saved as JSON files with train/validation/test splits (80/10/10).
 """
@@ -20,11 +23,14 @@ from src.tokenizer import ArithmeticTokenizer
 from src.types import DatasetDict
 
 
-def generate_single_digit_addition(num_examples: int, seed: int = 42) -> list[str]:
-    """Generate single-digit addition examples.
+def generate_addition_examples(
+    num_examples: int, max_digits: int = 8, seed: int = 42
+) -> list[str]:
+    """Generate addition examples with uniform distribution across digit lengths.
 
     Args:
         num_examples: Number of examples to generate
+        max_digits: Maximum number of digits per operand (1-8)
         seed: Random seed for reproducibility
 
     Returns:
@@ -33,20 +39,18 @@ def generate_single_digit_addition(num_examples: int, seed: int = 42) -> list[st
     random.seed(seed)
     examples = []
 
-    # Generate all possible single-digit addition combinations
-    all_combinations = []
-    for a in range(10):
-        for b in range(10):
-            result = a + b
-            example = f"{a}+{b}={result}<end>"
-            all_combinations.append(example)
+    for _ in range(num_examples):
+        # Generate each operand independently with random digit count
+        num_digits_a = random.randint(1, max_digits)
+        num_digits_b = random.randint(1, max_digits)
 
-    # If we need fewer examples than all combinations, sample randomly
-    if num_examples <= len(all_combinations):
-        examples = random.sample(all_combinations, num_examples)
-    else:
-        # If we need more examples, sample with replacement
-        examples = random.choices(all_combinations, k=num_examples)
+        # Generate operands (0 to 10^digits - 1)
+        a = random.randint(10 ** (num_digits_a - 1), 10**num_digits_a - 1)
+        b = random.randint(10 ** (num_digits_b - 1), 10**num_digits_b - 1)
+
+        result = a + b
+        example = f"{a}+{b}={result}<end>"
+        examples.append(example)
 
     return examples
 
@@ -128,6 +132,12 @@ def main():
         help="Number of examples to generate (default: 10000)",
     )
     parser.add_argument(
+        "--max-digits",
+        type=int,
+        default=8,
+        help="Maximum number of digits per operand (default: 8)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default="data",
@@ -158,7 +168,8 @@ def main():
     if args.train_ratio + args.val_ratio >= 1.0:
         parser.error("train_ratio + val_ratio must be less than 1.0")
 
-    print(f"Generating {args.num_examples} single-digit addition examples...")
+    print(f"Generating {args.num_examples} addition examples...")
+    print(f"Maximum digits per operand: {args.max_digits}")
     print(f"Random seed: {args.seed}")
     print(f"Output directory: {args.output_dir}")
     print(
@@ -166,7 +177,7 @@ def main():
     )
 
     # Generate examples
-    examples = generate_single_digit_addition(args.num_examples, args.seed)
+    examples = generate_addition_examples(args.num_examples, args.max_digits, args.seed)
     print(f"Generated {len(examples)} examples")
 
     # Show some sample examples
