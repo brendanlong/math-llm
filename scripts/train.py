@@ -304,6 +304,11 @@ def main() -> None:
     logger.info(f"Using device: {device}")
     model.to(device)
 
+    # Enable TensorFloat32 for better performance on modern GPUs
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision("high")
+        logger.info("Enabled TensorFloat32 for faster matrix multiplication")
+
     # Custom data collator since we're not using HuggingFace tokenizer
     def data_collator(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
         """Simple data collator for our custom tokenizer."""
