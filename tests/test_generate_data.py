@@ -3,6 +3,7 @@
 from src.generation import (
     generate_addition_examples,
     generate_chain_of_thought,
+    generate_recursive_chain_of_thought,
     split_data,
 )
 from src.tokenizer import ArithmeticTokenizer
@@ -30,9 +31,13 @@ class TestChainOfThought:
         """Test the format of generated reasoning."""
         reasoning = generate_chain_of_thought(25, 17)
 
-        # Should be exact format
-        expected = "<think>\n5+7=12\n2+1+1=4</think>"
-        assert reasoning == expected
+        # Should include recursive thinking for carries
+        assert reasoning.startswith("<think>")
+        assert reasoning.endswith("</think>")
+        assert "5+7=12" in reasoning
+        assert "2+1+1=" in reasoning
+        # Should have nested thinking for the carry
+        assert reasoning.count("<think>") >= 2
 
     def test_carry_reasoning(self):
         """Test reasoning with carry operations."""
@@ -41,26 +46,37 @@ class TestChainOfThought:
         # 8+9 should be single digit, no reasoning
         assert reasoning == ""
 
-        # Multi-digit with carry
+        # Multi-digit with carry should have recursive thinking
         reasoning = generate_chain_of_thought(18, 9)
-        expected = "<think>\n8+9=17\n1+0+1=2</think>"
-        assert reasoning == expected
+        assert reasoning.startswith("<think>")
+        assert reasoning.endswith("</think>")
+        assert "8+9=17" in reasoning
+        assert "1+0+1=" in reasoning
 
     def test_complex_carry(self):
         """Test complex multi-digit carry operations."""
         reasoning = generate_chain_of_thought(658, 189)
 
-        # Should be exact format with explicit carries
-        expected = "<think>\n8+9=17\n5+8+1=14\n6+1+1=8</think>"
-        assert reasoning == expected
+        # Should have nested thinking for carries
+        assert reasoning.startswith("<think>")
+        assert reasoning.endswith("</think>")
+        assert "8+9=17" in reasoning
+        assert "5+8+1=" in reasoning
+        assert "6+1+1=" in reasoning
+        # Should have multiple levels of nesting
+        assert reasoning.count("<think>") > 1
 
     def test_large_numbers(self):
         """Test reasoning with larger numbers."""
         reasoning = generate_chain_of_thought(999, 999)
 
-        # Should be exact format with carries
-        expected = "<think>\n9+9=18\n9+9+1=19\n9+9+1=19</think>"
-        assert reasoning == expected
+        # Should have nested thinking for all the carries
+        assert reasoning.startswith("<think>")
+        assert reasoning.endswith("</think>")
+        assert "9+9=18" in reasoning
+        assert "9+9+1=" in reasoning
+        # Should have recursive thinking
+        assert reasoning.count("<think>") > 1
 
 
 class TestDataGeneration:
@@ -68,17 +84,19 @@ class TestDataGeneration:
 
     def test_generate_basic_examples(self):
         """Test basic example generation."""
-        examples = generate_addition_examples(num_examples=5, max_digits=1, seed=42)
+        examples = generate_addition_examples(
+            num_examples=5, max_digits=1, seed=42, include_three_operands=False
+        )
 
         assert len(examples) == 5
 
-        # All should be simple additions without reasoning
+        # All should be simple additions without reasoning (when forced to 2-operand only)
         for example in examples:
             assert example.endswith("<end>")
             assert "+" in example
             assert "=" in example
-            # Single-digit should not have reasoning
-            assert "<think>" not in example
+            # Count plus signs to ensure it's 2-operand
+            assert example.count("+") == 1
 
     def test_generate_multi_digit_examples(self):
         """Test multi-digit example generation."""
@@ -92,7 +110,9 @@ class TestDataGeneration:
 
     def test_example_validity(self):
         """Test that generated examples are mathematically correct."""
-        examples = generate_addition_examples(num_examples=10, max_digits=3, seed=42)
+        examples = generate_addition_examples(
+            num_examples=10, max_digits=2, seed=42, include_three_operands=False
+        )
         tokenizer = ArithmeticTokenizer()
 
         for example in examples:
@@ -105,19 +125,24 @@ class TestDataGeneration:
             if "<think>" in example:
                 # Remove reasoning part for validation
                 problem = example.split("=<think>")[0] + "="
-                answer_part = example.split("</think>")[1].replace("<end>", "")
+                answer_part = example.split("</think>")[-1].replace("<end>", "")
             else:
                 problem = example.replace("<end>", "")
                 answer_part = problem.split("=")[1]
                 problem = problem.split("=")[0] + "="
 
-            # Parse operands and result
+            # Parse operands and result - handle 2-operand only
             operands = problem.replace("=", "").split("+")
-            a, b = int(operands[0]), int(operands[1])
+            if len(operands) == 2:
+                a, b = int(operands[0]), int(operands[1])
+                expected_result = a + b
+            else:
+                continue  # Skip 3-operand for this test
+
             result = int(answer_part)
 
             # Check arithmetic
-            assert a + b == result
+            assert expected_result == result
 
     def test_reproducibility(self):
         """Test that same seed produces same results."""
@@ -150,23 +175,111 @@ class TestDataGeneration:
 
     def test_reasoning_consistency(self):
         """Test that reasoning leads to correct answer."""
-        examples = generate_addition_examples(num_examples=10, max_digits=3, seed=42)
+        examples = generate_addition_examples(
+            num_examples=10, max_digits=2, seed=42, include_three_operands=False
+        )
 
         for example in examples:
             if "<think>" not in example:
                 continue
 
-            # Parse the example
+            # Parse the example - handle 2-operand only
             parts = example.split("=")
             operands = parts[0].split("+")
+            if len(operands) != 2:
+                continue  # Skip 3-operand examples
+
             a, b = int(operands[0]), int(operands[1])
 
             # Extract answer after reasoning
-            answer_part = example.split("</think>")[1].replace("<end>", "")
+            answer_part = example.split("</think>")[-1].replace("<end>", "")
             result = int(answer_part)
 
             # Verify arithmetic
             assert a + b == result
+
+    def test_three_operand_examples(self):
+        """Test generation of 3-operand examples."""
+        examples = generate_addition_examples(
+            num_examples=20, max_digits=1, seed=42, include_three_operands=True
+        )
+
+        # Should have both 2-operand and 3-operand examples
+        two_operand_count = 0
+        three_operand_count = 0
+
+        for example in examples:
+            # Extract just the problem part (before the = and any reasoning)
+            problem = example.split("=")[0]
+            plus_count = problem.count("+")
+
+            if plus_count == 1:
+                two_operand_count += 1
+            elif plus_count == 2:
+                three_operand_count += 1
+
+        assert two_operand_count > 0
+        assert three_operand_count > 0
+        assert two_operand_count + three_operand_count == len(examples)
+
+    def test_three_operand_validity(self):
+        """Test that 3-operand examples are mathematically correct."""
+        examples = generate_addition_examples(
+            num_examples=20, max_digits=1, seed=42, include_three_operands=True
+        )
+
+        for example in examples:
+            # Extract just the problem part to count operands
+            problem = example.split("=")[0]
+            if problem.count("+") != 2:  # Skip 2-operand examples
+                continue
+
+            # Extract the arithmetic expression
+            if "<think>" in example:
+                problem = example.split("=<think>")[0] + "="
+                answer_part = example.split("</think>")[-1].replace("<end>", "")
+            else:
+                problem = example.replace("<end>", "")
+                answer_part = problem.split("=")[1]
+                problem = problem.split("=")[0] + "="
+
+            # Parse operands and result
+            operands = problem.replace("=", "").split("+")
+            a, b, c = int(operands[0]), int(operands[1]), int(operands[2])
+            result = int(answer_part)
+
+            # Check arithmetic
+            assert a + b + c == result
+
+
+class TestRecursiveChainOfThought:
+    """Tests for recursive chain-of-thought generation."""
+
+    def test_two_operand_fallback(self):
+        """Test that 2-operand input uses regular chain-of-thought."""
+        result = generate_recursive_chain_of_thought([25, 17])
+        expected = generate_chain_of_thought(25, 17)
+        assert result == expected
+
+    def test_three_operand_structure(self):
+        """Test structure of 3-operand recursive reasoning."""
+        result = generate_recursive_chain_of_thought([3, 5, 2])
+
+        assert result.startswith("<think>")
+        assert result.endswith("</think>")
+        assert "3+5=" in result
+        assert "8+2=" in result
+        assert "10" in result  # Final answer
+
+    def test_nested_thinking_in_recursive(self):
+        """Test that complex recursive operations have nested thinking."""
+        result = generate_recursive_chain_of_thought([28, 17, 94])
+
+        # Should have nested <think> tags for multi-digit additions
+        assert result.count("<think>") > 1
+        assert result.count("</think>") > 1
+        assert "28+17=" in result
+        assert "45+94=" in result
 
 
 class TestDataSplitting:

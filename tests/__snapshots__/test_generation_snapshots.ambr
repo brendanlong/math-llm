@@ -1,0 +1,84 @@
+# serializer version: 1
+# name: test_chain_of_thought_snapshots
+  ''
+# ---
+# name: test_chain_of_thought_snapshots.1
+  '''
+  <think>
+  2+4=6
+  1+3=4</think>
+  '''
+# ---
+# name: test_chain_of_thought_snapshots.2
+  '''
+  <think>
+  8+7=15
+  2+1+1=<think>
+  2+1=3
+  3+1=4</think>4</think>
+  '''
+# ---
+# name: test_chain_of_thought_snapshots.3
+  '''
+  <think>
+  8+9=17
+  5+8+1=<think>
+  5+8=13
+  13+1=<think>
+  3+1=4
+  1+0=1</think>14</think>14
+  6+1+1=<think>
+  6+1=7
+  7+1=8</think>8</think>
+  '''
+# ---
+# name: test_recursive_chain_of_thought_snapshots
+  '''
+  <think>
+  8+7=15
+  2+1+1=<think>
+  2+1=3
+  3+1=4</think>4</think>
+  '''
+# ---
+# name: test_recursive_chain_of_thought_snapshots.1
+  '''
+  <think>
+  3+5=8
+  8+2=10</think>
+  '''
+# ---
+# name: test_recursive_chain_of_thought_snapshots.2
+  '''
+  <think>
+  28+17=<think>
+  8+7=15
+  2+1+1=<think>
+  2+1=3
+  3+1=4</think>4</think>45
+  45+94=<think>
+  5+4=9
+  4+9=13</think>139</think>
+  '''
+# ---
+# name: test_recursive_chain_of_thought_snapshots.3
+  '''
+  <think>
+  658+189=<think>
+  8+9=17
+  5+8+1=<think>
+  5+8=13
+  13+1=<think>
+  3+1=4
+  1+0=1</think>14</think>14
+  6+1+1=<think>
+  6+1=7
+  7+1=8</think>8</think>847
+  847+234=<think>
+  7+4=11
+  4+3+1=<think>
+  4+3=7
+  7+1=8</think>8
+  8+2=10</think>1081</think>
+  '''
+# ---

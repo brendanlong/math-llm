@@ -36,9 +36,15 @@ def generate_chain_of_thought(a: int, b: int) -> str:
         # Add digits plus any carry
         sum_digits = digit_a + digit_b + carry
 
-        # Show the addition step with explicit carry when present
+        # Show the addition step with recursive thinking when there's a carry (3 numbers)
         if carry > 0:
-            reasoning.append(f"\n{digit_a}+{digit_b}+{carry}={sum_digits}")
+            reasoning.append(f"\n{digit_a}+{digit_b}+{carry}=")
+            # Use recursive thinking for three-number addition
+            recursive_reasoning = generate_recursive_chain_of_thought(
+                [digit_a, digit_b, carry]
+            )
+            reasoning.append(recursive_reasoning)
+            reasoning.append(str(sum_digits))
         else:
             reasoning.append(f"\n{digit_a}+{digit_b}={sum_digits}")
 
@@ -49,8 +55,50 @@ def generate_chain_of_thought(a: int, b: int) -> str:
     return "".join(reasoning)
 
 
+def generate_recursive_chain_of_thought(operands: list[int]) -> str:
+    """Generate recursive left-to-right chain-of-thought for multiple operands.
+
+    Args:
+        operands: List of operands to add (e.g., [3, 5, 2])
+
+    Returns:
+        Chain-of-thought reasoning string showing recursive addition with nested <think> tags
+    """
+    if len(operands) < 3:
+        # For 2 operands, use original chain-of-thought
+        return generate_chain_of_thought(operands[0], operands[1])
+
+    # For 3+ operands, show recursive left-to-right addition
+    reasoning = ["<think>"]
+
+    # Start with first operand
+    current_sum = operands[0]
+
+    for i in range(1, len(operands)):
+        next_operand = operands[i]
+
+        # Show the addition step
+        reasoning.append(f"\n{current_sum}+{next_operand}=")
+
+        # Get the reasoning for this step (with nested <think> tags if multi-digit)
+        step_reasoning = generate_chain_of_thought(current_sum, next_operand)
+        if step_reasoning:
+            # Keep the nested <think> tags for recursive reasoning
+            reasoning.append(step_reasoning)
+
+        # Calculate and show the result
+        current_sum = current_sum + next_operand
+        reasoning.append(str(current_sum))
+
+    reasoning.append("</think>")
+    return "".join(reasoning)
+
+
 def generate_addition_examples(
-    num_examples: int, max_digits: int = 8, seed: int = 42
+    num_examples: int,
+    max_digits: int = 8,
+    seed: int = 42,
+    include_three_operands: bool = True,
 ) -> list[str]:
     """Generate addition examples with chain-of-thought for multi-digit problems.
 
@@ -58,58 +106,59 @@ def generate_addition_examples(
         num_examples: Number of examples to generate
         max_digits: Maximum number of digits per operand (1-8)
         seed: Random seed for reproducibility
+        include_three_operands: Whether to include 3-operand examples
 
     Returns:
         List of arithmetic expressions in format "a+b=<think>...</think>c<end>"
-        Chain-of-thought reasoning explicitly shows carries (e.g., "5+8+1=14")
+        or "a+b+c=<think>...</think>d<end>" with recursive reasoning
     """
     random.seed(seed)
     examples = []
-
-    # Calculate total possible combinations
     max_value = 10**max_digits - 1
-    total_combinations = (max_value + 1) ** 2
 
-    # If requested examples exceed total possible, generate all combinations
-    if num_examples >= total_combinations:
-        print(
-            f"Generating all {total_combinations} possible combinations for {max_digits}-digit operands"
-        )
-        for a in range(max_value + 1):
-            for b in range(max_value + 1):
-                result = a + b
-
-                # Generate chain-of-thought reasoning
-                reasoning = generate_chain_of_thought(a, b)
-
-                if reasoning:
-                    example = f"{a}+{b}={reasoning}{result}<end>"
-                else:
-                    example = f"{a}+{b}={result}<end>"
-
-                examples.append(example)
-
-        # Shuffle to randomize order
-        random.shuffle(examples)
+    # Determine the split between 2-operand and 3-operand examples
+    if include_three_operands:
+        two_operand_count = int(num_examples * 0.7)  # 70% two operands
+        three_operand_count = num_examples - two_operand_count  # 30% three operands
     else:
-        # Generate random examples as before
-        for _ in range(num_examples):
-            # Generate operands (0 to 10^digits - 1)
-            a = random.randint(0, max_value)
-            b = random.randint(0, max_value)
+        two_operand_count = num_examples
+        three_operand_count = 0
 
-            result = a + b
+    # Generate 2-operand examples
+    for _ in range(two_operand_count):
+        a = random.randint(0, max_value)
+        b = random.randint(0, max_value)
+        result = a + b
 
-            # Generate chain-of-thought reasoning
-            reasoning = generate_chain_of_thought(a, b)
+        # Generate chain-of-thought reasoning
+        reasoning = generate_chain_of_thought(a, b)
 
-            if reasoning:
-                example = f"{a}+{b}={reasoning}{result}<end>"
-            else:
-                example = f"{a}+{b}={result}<end>"
+        if reasoning:
+            example = f"{a}+{b}={reasoning}{result}<end>"
+        else:
+            example = f"{a}+{b}={result}<end>"
 
-            examples.append(example)
+        examples.append(example)
 
+    # Generate 3-operand examples
+    for _ in range(three_operand_count):
+        a = random.randint(0, max_value)
+        b = random.randint(0, max_value)
+        c = random.randint(0, max_value)
+        result = a + b + c
+
+        # Generate recursive chain-of-thought reasoning
+        reasoning = generate_recursive_chain_of_thought([a, b, c])
+
+        if reasoning:
+            example = f"{a}+{b}+{c}={reasoning}{result}<end>"
+        else:
+            example = f"{a}+{b}+{c}={result}<end>"
+
+        examples.append(example)
+
+    # Shuffle to randomize order
+    random.shuffle(examples)
     return examples
 
 
