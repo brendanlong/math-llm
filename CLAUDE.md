@@ -6,14 +6,10 @@ This is a machine learning project training a small transformer model to perform
 
 ## Key Documentation Files
 
-IMPORTANT: ALWAYS read these files before starting!
-
-- **README.md**: Project overview, quick start, and usage instructions
-- **DESIGN.md**: Architecture decisions, model specifications, and technical details
-- **CONTRIBUTING.md**: Development setup, code quality standards, and ML guidelines
-- **TODO.md**: Implementation roadmap and current priorities
-
-Start by reading these files in new sessions to understand project status and next steps.
+- @README.md Project overview, quick start, and usage instructions
+- @DESIGN.md Architecture decisions, model specifications, and technical details
+- @CONTRIBUTING.md Development setup, code quality standards, and ML guidelines
+- @TODO.md Implementation roadmap and current priorities
 
 ## Development Guidelines
 
