@@ -30,12 +30,12 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 
 - **Training Examples**: Support both simple and reasoning formats
 - **Simple Examples**: `"3+5=8<end>"` (single-digit, no reasoning needed)
-- **Reasoning Examples**: `"658+189=<think>\n8+9=17\n5+8=14\n6+1=8</think>847<end>"`
+- **Reasoning Examples**: `"658+189=<think>\n8+9=17\n5+8+1=14\n6+1+1=8</think>847<end>"`
 - **Chain-of-Thought**: Shows step-by-step column addition for multi-digit problems
 - **Progression**:
   1. Single-digit: `"3+5=8<end>"`
   2. Multi-digit with reasoning: `"12+34=<think>\n2+4=6\n1+3=4</think>46<end>"`
-  3. Complex problems: `"658+189=<think>\n8+9=17\n5+8=14\n6+1=8</think>847<end>"`
+  3. Complex problems: `"658+189=<think>\n8+9=17\n5+8+1=14\n6+1+1=8</think>847<end>"`
 
 ### Training Strategy
 

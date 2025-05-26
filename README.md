@@ -246,7 +246,7 @@ The interactive script accepts various input formats:
 - **Task**: Next-token prediction on arithmetic expressions with reasoning
 - **Formats**:
   - Simple: `"3+5=8<end>"`
-  - With reasoning: `"658+189=<think>\n8+9=17\n5+8=14\n6+1=8</think>847<end>"`
+  - With reasoning: `"658+189=<think>\n8+9=17\n5+8+1=14\n6+1+1=8</think>847<end>"`
 
 ## Hardware Requirements
 

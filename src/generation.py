@@ -36,8 +36,11 @@ def generate_chain_of_thought(a: int, b: int) -> str:
         # Add digits plus any carry
         sum_digits = digit_a + digit_b + carry
 
-        # Show the addition step (simplified - just show the final sum)
-        reasoning.append(f"\n{digit_a}+{digit_b}={sum_digits}")
+        # Show the addition step with explicit carry when present
+        if carry > 0:
+            reasoning.append(f"\n{digit_a}+{digit_b}+{carry}={sum_digits}")
+        else:
+            reasoning.append(f"\n{digit_a}+{digit_b}={sum_digits}")
 
         # Update carry for next iteration
         carry = sum_digits // 10 if sum_digits >= 10 else 0
@@ -58,6 +61,7 @@ def generate_addition_examples(
 
     Returns:
         List of arithmetic expressions in format "a+b=<think>...</think>c<end>"
+        Chain-of-thought reasoning explicitly shows carries (e.g., "5+8+1=14")
     """
     random.seed(seed)
     examples = []

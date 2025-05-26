@@ -30,13 +30,9 @@ class TestChainOfThought:
         """Test the format of generated reasoning."""
         reasoning = generate_chain_of_thought(25, 17)
 
-        # Should start and end correctly
-        assert reasoning.startswith("<think>")
-        assert reasoning.endswith("</think>")
-
-        # Should contain step-by-step calculations
-        assert "5+7=" in reasoning
-        assert "2+1=" in reasoning
+        # Should be exact format
+        expected = "<think>\n5+7=12\n2+1+1=4</think>"
+        assert reasoning == expected
 
     def test_carry_reasoning(self):
         """Test reasoning with carry operations."""
@@ -47,26 +43,24 @@ class TestChainOfThought:
 
         # Multi-digit with carry
         reasoning = generate_chain_of_thought(18, 9)
-        assert reasoning != ""
-        assert "<think>" in reasoning
+        expected = "<think>\n8+9=17\n1+0+1=2</think>"
+        assert reasoning == expected
 
     def test_complex_carry(self):
         """Test complex multi-digit carry operations."""
         reasoning = generate_chain_of_thought(658, 189)
 
-        # Should show step-by-step
-        assert "8+9=17" in reasoning
-        assert "5+8=14" in reasoning
-        assert "6+1=8" in reasoning
+        # Should be exact format with explicit carries
+        expected = "<think>\n8+9=17\n5+8+1=14\n6+1+1=8</think>"
+        assert reasoning == expected
 
     def test_large_numbers(self):
         """Test reasoning with larger numbers."""
         reasoning = generate_chain_of_thought(999, 999)
 
-        # Should show reasoning steps
-        assert reasoning.startswith("<think>")
-        assert reasoning.endswith("</think>")
-        assert "9+9=18" in reasoning
+        # Should be exact format with carries
+        expected = "<think>\n9+9=18\n9+9+1=19\n9+9+1=19</think>"
+        assert reasoning == expected
 
 
 class TestDataGeneration:
