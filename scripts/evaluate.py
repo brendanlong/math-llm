@@ -31,6 +31,92 @@ from src.model import (
 from src.tokenizer import ArithmeticTokenizer
 
 
+def remove_thinking_sections(text: str) -> str:
+    """Remove <think>...</think> sections from text.
+
+    Uses first <think> and last </think> to handle multiple tokens.
+
+    Args:
+        text: Input text that may contain thinking sections
+
+    Returns:
+        Text with thinking sections removed
+    """
+    first_think = text.find("<think>")
+    if first_think == -1:
+        return text  # No thinking section
+
+    last_end_think = text.rfind("</think>")
+    if last_end_think == -1 or last_end_think < first_think:
+        return text  # No matching closing tag or malformed
+
+    # Remove everything from first <think> to last </think> (inclusive)
+    return text[:first_think] + text[last_end_think + 8 :]
+
+
+def create_thinking_mask(
+    token_ids: torch.Tensor, tokenizer: ArithmeticTokenizer
+) -> torch.Tensor:
+    """Create a mask that excludes tokens inside <think>...</think> sections.
+
+    Uses first <think> and last </think> to handle multiple tokens.
+
+    Args:
+        token_ids: Tensor of token IDs (any shape)
+        tokenizer: Tokenizer instance to get special token IDs
+
+    Returns:
+        Boolean tensor with same shape, True for tokens to include in accuracy
+    """
+    think_token_id = tokenizer.vocab["<think>"]
+    end_think_token_id = tokenizer.vocab["</think>"]
+
+    mask = torch.ones_like(token_ids, dtype=torch.bool)
+
+    # Handle batched input
+    if token_ids.dim() == 2:
+        for batch_idx in range(token_ids.size(0)):
+            seq = token_ids[batch_idx]
+
+            # Find first <think> and last </think>
+            first_think_pos = -1
+            last_end_think_pos = -1
+
+            for pos in range(len(seq)):
+                if seq[pos] == think_token_id and first_think_pos == -1:
+                    first_think_pos = pos
+                elif seq[pos] == end_think_token_id:
+                    last_end_think_pos = pos
+
+            # Mask tokens between first <think> and last </think> (inclusive)
+            if (
+                first_think_pos != -1
+                and last_end_think_pos != -1
+                and last_end_think_pos > first_think_pos
+            ):
+                mask[batch_idx, first_think_pos : last_end_think_pos + 1] = False
+    else:
+        # Handle 1D tensor
+        first_think_pos = -1
+        last_end_think_pos = -1
+
+        for pos in range(len(token_ids)):
+            if token_ids[pos] == think_token_id and first_think_pos == -1:
+                first_think_pos = pos
+            elif token_ids[pos] == end_think_token_id:
+                last_end_think_pos = pos
+
+        # Mask tokens between first <think> and last </think> (inclusive)
+        if (
+            first_think_pos != -1
+            and last_end_think_pos != -1
+            and last_end_think_pos > first_think_pos
+        ):
+            mask[first_think_pos : last_end_think_pos + 1] = False
+
+    return mask
+
+
 def setup_logging() -> None:
     """Setup colored logging configuration."""
     console_handler = colorlog.StreamHandler()
@@ -149,8 +235,12 @@ def compute_exact_match_accuracy(
                     # Extract only the generated part
                     generated_text = tokenizer.decode(generated_ids[0].cpu().tolist())
 
+                    # Remove thinking sections before comparison
+                    generated_clean = remove_thinking_sections(generated_text.strip())
+                    target_clean = remove_thinking_sections(target_text.strip())
+
                     # Check if generated text matches target
-                    if generated_text.strip() == target_text.strip():
+                    if generated_clean == target_clean:
                         correct += 1
 
                 total += 1
@@ -161,6 +251,7 @@ def compute_exact_match_accuracy(
 def compute_token_accuracy(
     model: ArithmeticModel,
     dataloader: DataLoader[dict[str, torch.Tensor]],
+    tokenizer: ArithmeticTokenizer,
     device: torch.device,
 ) -> float:
     """Compute token-level accuracy on teacher-forced predictions.
@@ -193,15 +284,28 @@ def compute_token_accuracy(
             shift_predictions = predictions[..., :-1].contiguous()
             shift_labels = labels[..., 1:].contiguous()
 
-            # Flatten and mask padding tokens
-            shift_predictions = shift_predictions.view(-1)
-            shift_labels = shift_labels.view(-1)
+            # Remove thinking sections from both predictions and labels for proper alignment
+            batch_size, _ = shift_predictions.shape
 
-            mask = shift_labels != -100
-            correct = (shift_predictions == shift_labels) & mask
+            for i in range(batch_size):
+                pred_seq = shift_predictions[i]
+                label_seq = shift_labels[i]
 
-            total_correct += correct.sum().item()
-            total_tokens += mask.sum().item()
+                # Create thinking mask for this sequence
+                thinking_mask = create_thinking_mask(label_seq, tokenizer)
+
+                # Only include non-padding, non-thinking tokens
+                valid_mask = (label_seq != -100) & thinking_mask
+
+                if valid_mask.sum() > 0:
+                    # Extract tokens outside thinking sections
+                    pred_filtered = pred_seq[valid_mask]
+                    label_filtered = label_seq[valid_mask]
+
+                    # Compare aligned tokens
+                    correct = pred_filtered == label_filtered
+                    total_correct += correct.sum().item()
+                    total_tokens += len(correct)
 
     return total_correct / total_tokens if total_tokens > 0 else 0.0
 
@@ -240,7 +344,7 @@ def evaluate_on_dataset(
     # Compute metrics
     logging.info(f"Evaluating on {len(cast(Sized, dataloader.dataset))} examples")
 
-    token_accuracy = compute_token_accuracy(model, dataloader, device)
+    token_accuracy = compute_token_accuracy(model, dataloader, tokenizer, device)
     exact_match_accuracy = compute_exact_match_accuracy(
         model, dataloader, tokenizer, device
     )
