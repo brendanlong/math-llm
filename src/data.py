@@ -6,7 +6,8 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from .tokenizer import MAX_SEQUENCE_LENGTH, ArithmeticTokenizer
+from .model import MAX_SEQUENCE_LENGTH
+from .tokenizer import ArithmeticTokenizer
 from .types import DatasetDict
 
 

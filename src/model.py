@@ -11,7 +11,9 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from .tokenizer import MAX_SEQUENCE_LENGTH, VOCAB_SIZE
+from .tokenizer import VOCAB_SIZE
+
+MAX_SEQUENCE_LENGTH = 1024
 
 
 class PositionalEncoding(nn.Module):

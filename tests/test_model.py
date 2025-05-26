@@ -3,6 +3,7 @@
 import torch
 
 from src.model import (
+    MAX_SEQUENCE_LENGTH,
     ArithmeticModel,
     PositionalEncoding,
     TransformerBlock,
@@ -10,7 +11,7 @@ from src.model import (
     create_medium_model,
     create_small_model,
 )
-from src.tokenizer import MAX_SEQUENCE_LENGTH, VOCAB_SIZE, ArithmeticTokenizer
+from src.tokenizer import VOCAB_SIZE, ArithmeticTokenizer
 
 
 class TestPositionalEncoding:

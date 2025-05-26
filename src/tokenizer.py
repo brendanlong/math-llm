@@ -32,7 +32,6 @@ V = {
 
 # Constants derived from vocabulary
 VOCAB_SIZE = len(V)
-MAX_SEQUENCE_LENGTH = 128
 
 
 class ArithmeticTokenizer:
