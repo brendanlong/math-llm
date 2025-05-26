@@ -16,6 +16,9 @@ python scripts/train.py
 
 # Test the model
 python scripts/evaluate.py
+
+# Try the model interactively
+python scripts/interactive.py --checkpoint checkpoints/model.safetensors
 ```
 
 ## Project Structure
@@ -25,7 +28,8 @@ math-llm/
 ├── scripts/
 │   ├── generate_data.py    # Data generation
 │   ├── train.py           # Training script
-│   └── evaluate.py        # Evaluation script
+│   ├── evaluate.py        # Evaluation script
+│   └── interactive.py     # Interactive inference
 ├── src/
 │   ├── model.py           # Model architecture
 │   ├── tokenizer.py       # Custom tokenizer
@@ -177,6 +181,62 @@ python scripts/evaluate.py \
 - **Exact Match Accuracy**: Percentage of completely correct arithmetic answers
 - **Token-Level Accuracy**: Per-token prediction accuracy during teacher forcing
 - **Number of Examples**: Total examples evaluated
+
+### Interactive Inference
+
+Test your trained model interactively by providing arithmetic expressions and seeing the model's completions:
+
+```bash
+# Basic interactive session
+python scripts/interactive.py --checkpoint checkpoints/model.safetensors
+
+# Use specific model size and generation settings
+python scripts/interactive.py \
+  --checkpoint checkpoints/checkpoint-1000/model.safetensors \
+  --model-size medium \
+  --temperature 0.2 \
+  --max-new-tokens 15
+```
+
+#### Interactive Arguments
+
+**Required:**
+
+- `--checkpoint`: Path to model checkpoint file
+
+**Model Configuration:**
+
+- `--model-size`: Model size (`small`, `medium`, `large`) - default: `small`
+
+**Generation Settings:**
+
+- `--max-new-tokens`: Maximum tokens to generate - default: `20`
+- `--temperature`: Sampling temperature (lower = more deterministic) - default: `0.1`
+
+**System:**
+
+- `--device`: Device to use (`cuda`, `cpu`, `auto`) - default: `auto`
+
+#### Usage Examples
+
+The interactive script accepts various input formats:
+
+```text
+➤ Enter expression: 3+5=
+✨ Model completion: '3+5=' → '3+5=8<end>'
+
+➤ Enter expression: 12+34=
+✨ Model completion: '12+34=' → '12+34=46<end>'
+
+➤ Enter expression: 7+
+✨ Model completion: '7+' → '7+3=10<end>'
+```
+
+**Input Validation:**
+
+- Only accepts digits (0-9), plus sign (+), and equals sign (=)
+- Provides helpful error messages for invalid input
+- Type 'quit' or 'exit' to end the session, or use Ctrl+C/Ctrl+D
 
 ## Model Details
 
