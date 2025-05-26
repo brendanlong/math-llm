@@ -246,6 +246,11 @@ def main() -> None:
         action="store_true",
         help="Disable Weights & Biases logging",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume training from existing checkpoint in output directory",
+    )
 
     args = parser.parse_args()
 
@@ -319,7 +324,7 @@ def main() -> None:
     # Training arguments
     training_args = TrainingArguments(
         output_dir=args.output_dir,
-        overwrite_output_dir=True,
+        overwrite_output_dir=not args.resume,
         # Training hyperparameters
         num_train_epochs=args.num_epochs,
         per_device_train_batch_size=args.batch_size,
@@ -374,7 +379,7 @@ def main() -> None:
 
     # Start training
     logger.info("Starting training")
-    trainer.train()
+    trainer.train(args.resume)
 
     # Save final model
     logger.info("Saving final model")
