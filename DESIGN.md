@@ -57,7 +57,7 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 
 ## Hardware Constraints
 
-- **GPU**: RTX3060 (12GB VRAM)
+- **GPU**: RTX3060 Ti (8GB VRAM)
 - **Model Size Limit**: ~50M parameters maximum
 - **Batch Size**: Tuned to maximize GPU utilization without OOM
 
