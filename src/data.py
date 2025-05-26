@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from .tokenizer import ArithmeticTokenizer
+from .types import DatasetDict
 
 
 class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
@@ -34,7 +35,8 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
 
         # Load data
         with open(self.data_path, "r") as f:
-            self.data = json.load(f)
+            dataset: DatasetDict = json.load(f)
+            self.data = dataset["examples"]
 
     def __len__(self) -> int:
         return len(self.data)
@@ -48,7 +50,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         Returns:
             Dictionary with 'input_ids' and 'labels' tensors
         """
-        expression = self.data[idx]["expression"]
+        expression = self.data[idx]["text"]
 
         # Tokenize the expression
         tokens = self.tokenizer.encode(expression)

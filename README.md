@@ -45,9 +45,79 @@ python scripts/generate_data.py --num-examples 100000 --max-digits 2
 
 ### Training
 
+The training script supports comprehensive configuration with colored logging and W&B integration:
+
 ```bash
-python scripts/train.py --model-size small --batch-size 32 --learning-rate 1e-4
+# Basic training with default settings
+python scripts/train.py
+
+# Custom configuration
+python scripts/train.py \
+  --model-size medium \
+  --batch-size 64 \
+  --learning-rate 2e-4 \
+  --num-epochs 20 \
+  --fp16 \
+  --data-dir data \
+  --output-dir checkpoints/experiment1
+
+# Training without W&B logging
+python scripts/train.py --no-wandb
+
+# Resume from checkpoint
+python scripts/train.py --output-dir checkpoints/experiment1
 ```
+
+#### Training Arguments
+
+**Model Configuration:**
+
+- `--model-size`: Model size (`small`, `medium`, `large`) - default: `small`
+- `--max-length`: Maximum sequence length - default: `32`
+
+**Training Hyperparameters:**
+
+- `--batch-size`: Training batch size - default: `32`
+- `--eval-batch-size`: Evaluation batch size - default: `64`
+- `--learning-rate`: Learning rate - default: `1e-4`
+- `--weight-decay`: Weight decay - default: `0.01`
+- `--num-epochs`: Number of training epochs - default: `10`
+- `--warmup-steps`: Learning rate warmup steps - default: `500`
+
+**Data and I/O:**
+
+- `--data-dir`: Directory with train/val/test JSON files - default: `data`
+- `--output-dir`: Checkpoint output directory - default: `checkpoints`
+- `--num-workers`: Data loading workers - default: `4`
+
+**Logging and Checkpointing:**
+
+- `--save-steps`: Save checkpoint every N steps - default: `1000`
+- `--eval-steps`: Evaluate every N steps - default: `1000`
+- `--logging-steps`: Log metrics every N steps - default: `100`
+
+**System Options:**
+
+- `--fp16`: Enable mixed precision training
+- `--no-wandb`: Disable Weights & Biases logging
+- `--seed`: Random seed for reproducibility - default: `42`
+
+#### Model Sizes
+
+| Size | Parameters | Layers | Hidden Size | Heads | Feed-Forward |
+|------|------------|--------|-------------|-------|--------------|
+| Small | ~1M | 4 | 256 | 4 | 512 |
+| Medium | ~5M | 6 | 512 | 8 | 1024 |
+| Large | ~10M | 8 | 512 | 8 | 2048 |
+
+#### Output Files
+
+Training generates several output files in the checkpoint directory:
+
+- `pytorch_model.bin`: Final trained model weights
+- `training_config.json`: Complete training configuration
+- `test_results.json`: Final evaluation metrics
+- `logs/training.log`: Detailed training logs with timestamps
 
 ### Evaluation
 

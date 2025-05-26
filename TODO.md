@@ -33,7 +33,7 @@
   - Proper tokenization and padding
   - Efficient batching
 
-- [ ] **Training script** (`scripts/train.py`)
+- [x] **Training script** (`scripts/train.py`)
   - HuggingFace Trainer integration
   - W&B logging setup
   - Checkpoint saving every 1000 steps
@@ -83,4 +83,4 @@
 
 ## Current Priority
 
-Phase 3: Next priority is training script (`scripts/train.py`).
+Phase 3: Next priority is evaluation script (`scripts/evaluate.py`).

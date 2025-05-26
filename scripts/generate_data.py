@@ -12,36 +12,12 @@ import json
 import random
 import sys
 from pathlib import Path
-from typing import TypedDict
 
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.tokenizer import ArithmeticTokenizer
-
-
-class ExampleDict(TypedDict):
-    """Type definition for a single training example."""
-
-    text: str
-    tokens: list[int]
-    length: int
-
-
-class MetadataDict(TypedDict):
-    """Type definition for dataset metadata."""
-
-    split: str
-    num_examples: int
-    vocab_size: int
-    format: str
-
-
-class DatasetDict(TypedDict):
-    """Type definition for the complete dataset."""
-
-    examples: list[ExampleDict]
-    metadata: MetadataDict
+from src.types import DatasetDict
 
 
 def generate_single_digit_addition(num_examples: int, seed: int = 42) -> list[str]:

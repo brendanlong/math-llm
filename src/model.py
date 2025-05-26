@@ -5,7 +5,7 @@ learning basic arithmetic operations like addition.
 """
 
 import math
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 import torch.nn as nn
@@ -173,16 +173,23 @@ class ArithmeticModel(nn.Module):
         return mask
 
     def forward(
-        self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        **kwargs: Any,
+    ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
             attention_mask: Optional attention mask
+            labels: Optional labels for computing loss
+            **kwargs: Additional arguments (ignored)
 
         Returns:
-            Logits tensor of shape (batch_size, seq_len, vocab_size)
+            If labels provided: dict with 'loss' and 'logits'
+            Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
         _, seq_len = input_ids.shape
 
@@ -205,6 +212,20 @@ class ArithmeticModel(nn.Module):
         # Final layer norm and projection
         x = self.ln_f(x)
         logits = self.lm_head(x)  # (batch_size, seq_len, vocab_size)
+
+        # Compute loss if labels are provided
+        if labels is not None:
+            # Shift logits and labels for next-token prediction
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+
+            # Flatten for loss computation
+            loss_fct = nn.CrossEntropyLoss()
+            shift_logits = shift_logits.view(-1, shift_logits.size(-1))
+            shift_labels = shift_labels.view(-1)
+
+            loss = loss_fct(shift_logits, shift_labels)
+            return {"loss": loss, "logits": logits}
 
         return logits
 
@@ -233,7 +254,12 @@ class ArithmeticModel(nn.Module):
         for _ in range(max_new_tokens):
             # Get predictions for current sequence
             with torch.no_grad():
-                logits = self.forward(input_ids)
+                outputs = self.forward(input_ids)
+                # Extract logits (forward returns dict when labels provided, tensor otherwise)
+                if isinstance(outputs, dict):
+                    logits = outputs["logits"]
+                else:
+                    logits = outputs
 
                 # Get logits for last token
                 logits = logits[:, -1, :] / temperature
