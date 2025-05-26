@@ -66,26 +66,49 @@ def generate_addition_examples(
     random.seed(seed)
     examples = []
 
-    for _ in range(num_examples):
-        # Generate each operand independently with random digit count
-        num_digits_a = random.randint(1, max_digits)
-        num_digits_b = random.randint(1, max_digits)
+    # Calculate total possible combinations
+    max_value = 10**max_digits - 1
+    total_combinations = (max_value + 1) ** 2
 
-        # Generate operands (0 to 10^digits - 1)
-        a = random.randint(10 ** (num_digits_a - 1), 10**num_digits_a - 1)
-        b = random.randint(10 ** (num_digits_b - 1), 10**num_digits_b - 1)
+    # If requested examples exceed total possible, generate all combinations
+    if num_examples >= total_combinations:
+        print(
+            f"Generating all {total_combinations} possible combinations for {max_digits}-digit operands"
+        )
+        for a in range(max_value + 1):
+            for b in range(max_value + 1):
+                result = a + b
 
-        result = a + b
+                # Generate chain-of-thought reasoning
+                reasoning = generate_chain_of_thought(a, b)
 
-        # Generate chain-of-thought reasoning
-        reasoning = generate_chain_of_thought(a, b)
+                if reasoning:
+                    example = f"{a}+{b}={reasoning}{result}<end>"
+                else:
+                    example = f"{a}+{b}={result}<end>"
 
-        if reasoning:
-            example = f"{a}+{b}={reasoning}{result}<end>"
-        else:
-            example = f"{a}+{b}={result}<end>"
+                examples.append(example)
 
-        examples.append(example)
+        # Shuffle to randomize order
+        random.shuffle(examples)
+    else:
+        # Generate random examples as before
+        for _ in range(num_examples):
+            # Generate operands (0 to 10^digits - 1)
+            a = random.randint(0, max_value)
+            b = random.randint(0, max_value)
+
+            result = a + b
+
+            # Generate chain-of-thought reasoning
+            reasoning = generate_chain_of_thought(a, b)
+
+            if reasoning:
+                example = f"{a}+{b}={reasoning}{result}<end>"
+            else:
+                example = f"{a}+{b}={result}<end>"
+
+            examples.append(example)
 
     return examples
 
