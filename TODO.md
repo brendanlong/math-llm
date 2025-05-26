@@ -2,10 +2,10 @@
 
 ## Phase 1: Project Setup
 - [x] Create documentation (README, DESIGN, CONTRIBUTING, CLAUDE)
-- [ ] Initialize Python project with `uv`
-- [ ] Setup dependencies (torch, transformers, datasets, wandb)
-- [ ] Configure development tools (ruff, pyright, pre-commit)
-- [ ] Create directory structure
+- [x] Initialize Python project with `uv`
+- [x] Setup dependencies (torch, transformers, datasets, wandb)
+- [x] Configure development tools (ruff, pyright, pre-commit)
+- [x] Create directory structure
 
 ## Phase 2: Core Components
 - [ ] **Custom tokenizer** (`src/tokenizer.py`)

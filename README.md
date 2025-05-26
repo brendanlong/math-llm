@@ -5,8 +5,8 @@ A minimal transformer model for learning basic arithmetic operations, starting w
 ## Quick Start
 
 ```bash
-# Install dependencies
-uv sync
+# Setup development environment
+./setup.sh
 
 # Generate training data
 python scripts/generate_data.py

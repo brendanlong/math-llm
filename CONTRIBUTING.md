@@ -6,8 +6,13 @@
 # Clone and setup
 git clone <repo-url>
 cd math-llm
-uv sync
+./setup.sh
 ```
+
+Development tools are configured in `pyproject.toml` for consistency and easy management.
+
+### Bash Scripts
+All bash scripts should be run with `set -e` to exit on any error, ensuring failures are caught early.
 
 ## Code Quality
 

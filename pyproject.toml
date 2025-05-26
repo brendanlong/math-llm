@@ -1,0 +1,31 @@
+[project]
+name = "math-llm"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "datasets>=3.6.0",
+    "torch>=2.7.0",
+    "transformers>=4.52.3",
+    "wandb>=0.19.11",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pyright>=1.1.401",
+    "pytest>=8.3.5",
+    "ruff>=0.11.11",
+]
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnusedImport = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
