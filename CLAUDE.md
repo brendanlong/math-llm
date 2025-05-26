@@ -1,6 +1,7 @@
 # Claude AI Assistant Instructions
 
 ## Project Context
+
 This is a machine learning project training a small transformer model to perform basic arithmetic (starting with addition). The codebase uses Python with PyTorch and HuggingFace Transformers.
 
 ## Key Documentation Files
@@ -17,6 +18,7 @@ Start by reading these files in new sessions to understand project status and ne
 ## Development Guidelines
 
 ### Code Quality Commands
+
 - **Formatting**: `ruff format .`
 - **Linting**: `ruff check .` (use `--fix` for auto-fixes)
 - **Type checking**: `pyright`
@@ -24,6 +26,7 @@ Start by reading these files in new sessions to understand project status and ne
 - **Tests**: `pytest`
 
 ### Project Structure
+
 - `src/`: Core model and utilities
 - `scripts/`: Training, data generation, and evaluation scripts
 - `data/`: Generated datasets
@@ -31,6 +34,7 @@ Start by reading these files in new sessions to understand project status and ne
 - `tests/`: Test files
 
 ### ML-Specific Guidelines
+
 - Always set random seeds for reproducibility
 - Log experiments to Weights & Biases
 - Save checkpoints every 1000 steps
@@ -38,11 +42,13 @@ Start by reading these files in new sessions to understand project status and ne
 - Use type hints for all torch.Tensor parameters
 
 ### Dependencies
+
 - Use `uv` for package management
 - Key packages: torch, transformers, datasets, wandb
 - Dev tools: ruff, pyright, pytest, pre-commit
 
 ### Code Style
+
 - Follow Google-style docstrings
 - Use type hints for all function signatures
 - Format with ruff (similar to Black)
@@ -52,6 +58,7 @@ Start by reading these files in new sessions to understand project status and ne
 - Use `raise NewException(...) from e` instead of logging and re-raising
 
 ## Project Goals
+
 1. Start with single-digit addition: "3+5=8<end>"
 2. Progress to multi-digit: "12+34=46<end>"
 3. Custom character-level tokenizer (12 tokens total)

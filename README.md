@@ -20,7 +20,7 @@ python scripts/evaluate.py
 
 ## Project Structure
 
-```
+```text
 math-llm/
 ├── scripts/
 │   ├── generate_data.py    # Data generation
@@ -38,16 +38,19 @@ math-llm/
 ## Usage
 
 ### Data Generation
+
 ```bash
 python scripts/generate_data.py --num-examples 100000 --max-digits 2
 ```
 
 ### Training
+
 ```bash
 python scripts/train.py --model-size small --batch-size 32 --learning-rate 1e-4
 ```
 
 ### Evaluation
+
 ```bash
 python scripts/evaluate.py --checkpoint checkpoints/best_model.pt
 ```
@@ -68,6 +71,7 @@ python scripts/evaluate.py --checkpoint checkpoints/best_model.pt
 ## Monitoring
 
 Training progress is logged to Weights & Biases. Key metrics:
+
 - Exact match accuracy (complete answer correctness)
 - Token-level accuracy
 - Loss curves

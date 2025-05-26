@@ -1,6 +1,7 @@
 # Implementation Roadmap
 
 ## Phase 1: Project Setup
+
 - [x] Create documentation (README, DESIGN, CONTRIBUTING, CLAUDE)
 - [x] Initialize Python project with `uv`
 - [x] Setup dependencies (torch, transformers, datasets, wandb)
@@ -8,11 +9,12 @@
 - [x] Create directory structure
 
 ## Phase 2: Core Components
+
 - [x] **Custom tokenizer** (`src/tokenizer.py`)
   - Character-level tokenizer for digits, +, =, <end>
   - Vocabulary size: 13 tokens
   - Encode/decode methods
-  
+
 - [ ] **Data generation** (`scripts/generate_data.py`)
   - Generate arithmetic expressions: "a+b=c<end>"
   - Start with single-digit addition
@@ -25,6 +27,7 @@
   - Compatible with HuggingFace Transformers
 
 ## Phase 3: Training Infrastructure
+
 - [ ] **Data loading** (`src/data.py`)
   - PyTorch Dataset and DataLoader
   - Proper tokenization and padding
@@ -42,11 +45,12 @@
   - Inference on test set
 
 ## Phase 4: Testing & Validation
+
 - [ ] **Unit tests** (`tests/`)
   - Test tokenizer encode/decode
   - Test data generation
   - Test model forward pass
-  
+
 - [ ] **End-to-end validation**
   - Generate small dataset (1k examples)
   - Train tiny model (100k parameters)
@@ -54,6 +58,7 @@
   - Check W&B logging
 
 ## Phase 5: Scaling & Optimization
+
 - [ ] **Scale up data**
   - 100k+ training examples
   - Multi-digit addition support
@@ -70,10 +75,12 @@
   - Generalization to unseen ranges
 
 ## Phase 6: Extensions (Future)
+
 - [ ] Support subtraction, multiplication, division
 - [ ] Multi-step arithmetic problems
 - [ ] Chain-of-thought reasoning
 - [ ] Interactive inference demo
 
 ## Current Priority
+
 Phase 2: Next priority is data generation script (`scripts/generate_data.py`).
