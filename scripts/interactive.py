@@ -8,8 +8,10 @@ completions.
 
 import argparse
 import logging
+import re
 import sys
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 import colorlog
 import torch
@@ -89,45 +91,179 @@ def load_model(checkpoint_path: Path, model_size: str) -> ArithmeticModel:
     return model
 
 
-def parse_reasoning_output(text: str) -> tuple[str, str, str]:
+class ThinkingNode:
+    """Represents a node in the thinking tree structure."""
+
+    def __init__(
+        self,
+        tag_type: str,
+        content: str,
+        children: Optional[List["ThinkingNode"]] = None,
+    ):
+        self.tag_type = tag_type  # 'think_digit', 'think_multi', or 'text'
+        self.content = content
+        self.children = children or []
+
+    def __repr__(self) -> str:
+        return f"ThinkingNode({self.tag_type}, content='{self.content[:20]}...', children={len(self.children)})"
+
+
+def parse_thinking_recursively(text: str) -> List[ThinkingNode]:
+    """Parse thinking tags recursively to build a tree structure.
+
+    Args:
+        text: Text containing potentially nested thinking tags
+
+    Returns:
+        List of ThinkingNode objects representing the parsed structure
+    """
+    nodes = []
+    i = 0
+
+    while i < len(text):
+        # Look for opening thinking tags
+        think_match = re.search(r"<(think_digit|think_multi)>", text[i:])
+
+        if not think_match:
+            # No more thinking tags, rest is plain text
+            if i < len(text):
+                content = text[i:].strip()
+                if content:
+                    nodes.append(ThinkingNode("text", content))
+            break
+
+        # Add any text before the thinking tag
+        start_pos = i + think_match.start()
+        if start_pos > i:
+            content = text[i:start_pos].strip()
+            if content:
+                nodes.append(ThinkingNode("text", content))
+
+        # Find the matching closing tag
+        tag_type = think_match.group(1)
+        opening_tag = f"<{tag_type}>"
+        closing_tag = f"</{tag_type}>"
+
+        # Start after the opening tag
+        content_start = start_pos + len(opening_tag)
+
+        # Find matching closing tag, handling nesting
+        depth = 1
+        pos = content_start
+        while pos < len(text) and depth > 0:
+            # Look for next opening or closing tag of same type
+            next_open = text.find(opening_tag, pos)
+            next_close = text.find(closing_tag, pos)
+
+            if next_close == -1:
+                # No closing tag found
+                break
+
+            if next_open != -1 and next_open < next_close:
+                # Found nested opening tag
+                depth += 1
+                pos = next_open + len(opening_tag)
+            else:
+                # Found closing tag
+                depth -= 1
+                if depth == 0:
+                    # This is our matching closing tag
+                    thinking_content = text[content_start:next_close]
+
+                    # Recursively parse the content inside thinking tags
+                    children = parse_thinking_recursively(thinking_content)
+                    nodes.append(ThinkingNode(tag_type, thinking_content, children))
+
+                    i = next_close + len(closing_tag)
+                    break
+                else:
+                    pos = next_close + len(closing_tag)
+        else:
+            # Malformed - no matching closing tag found
+            i = len(text)
+
+    return nodes
+
+
+def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
+    """Display thinking tree structure with proper indentation.
+
+    Args:
+        nodes: List of ThinkingNode objects to display
+        indent: Current indentation level
+    """
+    indent_str = "  " * indent
+
+    for node in nodes:
+        if node.tag_type == "text":
+            # Display text content, splitting on newlines for better formatting
+            lines = node.content.replace("\\n", "\n").split("\n")
+            for line in lines:
+                if line.strip():
+                    print(f"{indent_str}{line.strip()}")
+        else:
+            # Display thinking tag
+            tag_symbol = "🧮" if node.tag_type == "think_digit" else "🎯"
+            print(
+                f"{indent_str}{tag_symbol} {node.tag_type.replace('_', ' ').title()}:"
+            )
+
+            # Recursively display children with increased indent
+            if node.children:
+                display_thinking_tree(node.children, indent + 1)
+            else:
+                # If no children, display the raw content
+                lines = node.content.replace("\\n", "\n").split("\n")
+                for line in lines:
+                    if line.strip():
+                        print(f"{indent_str}  {line.strip()}")
+
+
+def parse_reasoning_output(text: str) -> Tuple[str, List[ThinkingNode], str]:
     """Parse model output to separate reasoning from answer.
 
-    Handles both <think_digit> and <think_multi> reasoning sections.
+    Handles both <think_digit> and <think_multi> reasoning sections recursively.
 
     Args:
         text: Full model output text
 
     Returns:
-        Tuple of (prefix, reasoning, answer)
+        Tuple of (prefix, thinking_nodes, answer)
     """
-    # Find digit thinking tags first
-    think_digit_start = text.find("<think_digit>")
-    think_digit_end = text.find("</think_digit>")
+    # Find the first thinking tag
+    first_think = re.search(r"<(think_digit|think_multi)>", text)
 
-    # Find multi thinking tags
-    think_multi_start = text.find("<think_multi>")
-    think_multi_end = text.find("</think_multi>")
+    if not first_think:
+        # No thinking tags found
+        return text, [], ""
 
-    # Choose the earliest thinking section found
-    if think_digit_start != -1 and think_digit_end != -1:
-        if think_multi_start == -1 or think_digit_start < think_multi_start:
-            prefix = text[:think_digit_start]
-            reasoning = text[
-                think_digit_start + 13 : think_digit_end
-            ]  # Skip "<think_digit>"
-            answer = text[think_digit_end + 14 :]  # Skip "</think_digit>"
-            return prefix, reasoning, answer
+    # Split into prefix, thinking section, and answer
+    prefix = text[: first_think.start()]
 
-    if think_multi_start != -1 and think_multi_end != -1:
-        prefix = text[:think_multi_start]
-        reasoning = text[
-            think_multi_start + 13 : think_multi_end
-        ]  # Skip "<think_multi>"
-        answer = text[think_multi_end + 14 :]  # Skip "</think_multi>"
-        return prefix, reasoning, answer
+    # Parse thinking section recursively
+    thinking_section = text[first_think.start() :]
 
-    # No reasoning found
-    return text, "", ""
+    # Find where thinking ends (after the last closing tag)
+    last_close_digit = thinking_section.rfind("</think_digit>")
+    last_close_multi = thinking_section.rfind("</think_multi>")
+
+    if last_close_digit == -1 and last_close_multi == -1:
+        # No closing tags found
+        thinking_nodes = parse_thinking_recursively(thinking_section)
+        return prefix, thinking_nodes, ""
+
+    # Find the actual end of thinking section
+    if last_close_digit > last_close_multi:
+        thinking_end = last_close_digit + len("</think_digit>")
+    else:
+        thinking_end = last_close_multi + len("</think_multi>")
+
+    thinking_content = thinking_section[:thinking_end]
+    answer = thinking_section[thinking_end:]
+
+    thinking_nodes = parse_thinking_recursively(thinking_content)
+
+    return prefix, thinking_nodes, answer
 
 
 def interactive_session(
@@ -135,7 +271,7 @@ def interactive_session(
     tokenizer: ArithmeticTokenizer,
     device: torch.device,
     max_new_tokens: int = 512,
-    temperature: float = 0.1,
+    temperature: float = 0.01,
 ) -> None:
     """Run interactive inference session with chain-of-thought display.
 
@@ -222,18 +358,15 @@ def interactive_session(
                     completion = generated_text[len(user_input) :]
 
                     # Parse reasoning from completion
-                    prefix, reasoning, answer = parse_reasoning_output(completion)
+                    prefix, thinking_nodes, answer = parse_reasoning_output(completion)
 
-                    if reasoning:
-                        # Display reasoning and answer separately
+                    if thinking_nodes:
+                        # Display thinking tree structure
                         print("🤔 Chain of thought:")
-                        # Format reasoning nicely with proper newlines
-                        reasoning_lines = reasoning.replace("\\n", "\n").split("\n")
-                        for line in reasoning_lines:
-                            if line.strip():
-                                print(f"   {line}")
+                        display_thinking_tree(thinking_nodes, indent=1)
 
-                        print(f"✨ Final answer: {prefix}{answer}")
+                        if answer.strip():
+                            print(f"✨ Final answer: {prefix}{answer}")
                         print(
                             f"📝 Complete: '{user_input}' → '{user_input}{completion}'"
                         )
