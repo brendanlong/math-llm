@@ -21,7 +21,7 @@
   - Save to disk for reproducibility
   - Train/val/test splits (80/10/10)
 
-- [ ] **Model architecture** (`src/model.py`)
+- [x] **Model architecture** (`src/model.py`)
   - Small transformer decoder (~1M-10M parameters)
   - 4-8 layers, 256-512 hidden size
   - Compatible with HuggingFace Transformers
