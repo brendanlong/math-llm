@@ -185,7 +185,7 @@ def compute_exact_match_accuracy(
     dataloader: DataLoader[dict[str, torch.Tensor]],
     tokenizer: ArithmeticTokenizer,
     device: torch.device,
-    max_new_tokens: int = 20,
+    max_new_tokens: int = 512,
 ) -> float:
     """Compute exact match accuracy by generating complete sequences.
 
@@ -194,7 +194,7 @@ def compute_exact_match_accuracy(
         dataloader: DataLoader for evaluation data
         tokenizer: Tokenizer instance
         device: Device to run evaluation on
-        max_new_tokens: Maximum tokens to generate
+        max_new_tokens: Maximum tokens to generate (default: 512)
 
     Returns:
         Exact match accuracy (0.0 to 1.0)

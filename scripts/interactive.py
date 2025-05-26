@@ -117,7 +117,7 @@ def interactive_session(
     model: ArithmeticModel,
     tokenizer: ArithmeticTokenizer,
     device: torch.device,
-    max_new_tokens: int = 20,
+    max_new_tokens: int = 512,
     temperature: float = 0.1,
 ) -> None:
     """Run interactive inference session with chain-of-thought display.
@@ -126,7 +126,7 @@ def interactive_session(
         model: Loaded model
         tokenizer: Tokenizer instance
         device: Device to run on
-        max_new_tokens: Maximum tokens to generate
+        max_new_tokens: Maximum tokens to generate (default: 512)
         temperature: Sampling temperature
     """
     model.eval()
@@ -175,11 +175,25 @@ def interactive_session(
             print(f"💭 Generating completion for: '{user_input}'")
 
             with torch.no_grad():
+                initial_length = input_tensor.size(1)
                 generated_ids = model.generate(
                     input_tensor,
                     max_new_tokens=max_new_tokens,
                     temperature=temperature,
                     end_token_id=tokenizer.end_token_id,
+                )
+
+            # Check if we hit the token limit
+            final_length = generated_ids.size(1)
+            tokens_generated = final_length - initial_length
+            last_token = generated_ids[0, -1].item()
+
+            if (
+                tokens_generated >= max_new_tokens
+                and last_token != tokenizer.end_token_id
+            ):
+                print(
+                    f"⚠️  Warning: Hit token limit ({max_new_tokens} tokens) - generation may be incomplete"
                 )
 
             # Decode result
@@ -213,8 +227,8 @@ def interactive_session(
                 else:
                     print(f"✨ Model output: '{generated_text}'")
 
-                # Show token breakdown if helpful
-                if len(generated_ids[0]) <= 15:  # Only for short sequences
+                # Show token breakdown if helpful (only for very short sequences)
+                if len(generated_ids[0]) <= 10:  # Only for very short sequences
                     tokens = tokenizer.tokenize(generated_text)
                     print(f"🔍 Tokens: {' | '.join(tokens)}")
 
@@ -253,7 +267,7 @@ def main() -> None:
     parser.add_argument(
         "--max-new-tokens",
         type=int,
-        default=20,
+        default=512,
         help="Maximum number of new tokens to generate",
     )
     parser.add_argument(

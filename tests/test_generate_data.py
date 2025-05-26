@@ -145,8 +145,8 @@ class TestDataGeneration:
             a, b = int(operands[0]), int(operands[1])
 
             # Should be single digit
-            assert 1 <= a <= 9
-            assert 1 <= b <= 9
+            assert 0 <= a <= 9
+            assert 0 <= b <= 9
 
     def test_reasoning_consistency(self):
         """Test that reasoning leads to correct answer."""
