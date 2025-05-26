@@ -11,6 +11,8 @@ This is a machine learning project training a small transformer model to perform
 - @CONTRIBUTING.md Development setup, code quality standards, and ML guidelines
 - @TODO.md Implementation roadmap and current priorities
 
+IMPORTANT: Make sure to update TODO.md before checking anything in!
+
 ## Development Guidelines
 
 ### Code Quality Commands
