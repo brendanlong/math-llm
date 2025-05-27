@@ -102,6 +102,11 @@ def main():
         default=0.1,
         help="Fraction of data for validation (default: 0.1)",
     )
+    parser.add_argument(
+        "--fixed-length-cot",
+        action="store_true",
+        help="Enable fixed-length chain-of-thought padding with <noop> tokens",
+    )
 
     args = parser.parse_args()
 
@@ -118,7 +123,12 @@ def main():
     )
 
     # Generate examples
-    examples = generate_addition_examples(args.num_examples, args.max_digits, args.seed)
+    examples = generate_addition_examples(
+        args.num_examples,
+        args.max_digits,
+        args.seed,
+        fixed_length_cot=args.fixed_length_cot,
+    )
     print(f"Generated {len(examples)} examples")
 
     # Show some sample examples

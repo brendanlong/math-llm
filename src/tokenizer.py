@@ -1,9 +1,9 @@
 """Custom character-level tokenizer for arithmetic expressions with reasoning.
 
-This tokenizer handles a vocabulary of 18 tokens:
+This tokenizer handles a vocabulary of 19 tokens:
 - Digits: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
 - Operators: +, =
-- Special: <end>
+- Special: <end>, <noop>
 - Multi-operand reasoning: <think_multi>, </think_multi>
 - Multi-digit reasoning: <think_digit>, </think_digit>
 - Formatting: \n (newline)
@@ -31,6 +31,7 @@ V = {
     "<think_digit>": 15,
     "</think_digit>": 16,
     "\n": 17,
+    "<noop>": 18,
 }
 
 # Constants derived from vocabulary
@@ -83,6 +84,9 @@ class ArithmeticTokenizer:
             elif text[i : i + 13] == "<think_digit>":
                 tokens.append(self.vocab["<think_digit>"])
                 i += 13
+            elif text[i : i + 6] == "<noop>":
+                tokens.append(self.vocab["<noop>"])
+                i += 6
             elif text[i : i + 5] == "<end>":
                 tokens.append(self.vocab["<end>"])
                 i += 5
@@ -139,6 +143,9 @@ class ArithmeticTokenizer:
             elif text[i : i + 13] == "<think_digit>":
                 tokens.append("<think_digit>")
                 i += 13
+            elif text[i : i + 6] == "<noop>":
+                tokens.append("<noop>")
+                i += 6
             elif text[i : i + 5] == "<end>":
                 tokens.append("<end>")
                 i += 5

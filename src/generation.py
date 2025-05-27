@@ -3,6 +3,69 @@
 import random
 
 
+def calculate_max_operand_digits(*operands: int) -> int:
+    """Calculate maximum number of digits in any operand.
+
+    Args:
+        *operands: Variable number of operands
+
+    Returns:
+        Maximum number of digits across all operands
+    """
+    return max(len(str(operand)) for operand in operands)
+
+
+def pad_cot_to_fixed_length(
+    reasoning: str, operands: list[int], fixed_length_mode: bool = False
+) -> str:
+    """Pad chain-of-thought reasoning to fixed length with <noop> tokens.
+
+    Args:
+        reasoning: Original reasoning string (e.g., "<think_digit>...</think_digit>")
+        operands: List of operands to calculate padding from
+        fixed_length_mode: Whether to apply fixed-length padding
+
+    Returns:
+        Padded reasoning string with <noop> tokens if fixed_length_mode is True
+    """
+    if not fixed_length_mode or not reasoning:
+        return reasoning
+
+    # Calculate target length: 4 * max(digits in operands) + 2
+    max_digits = calculate_max_operand_digits(*operands)
+    target_tokens = 4 * max_digits + 2
+
+    # Count existing reasoning tokens (everything between outer think tags)
+    # For nested cases, we only pad the outermost level
+    if reasoning.startswith("<think_digit>") and reasoning.endswith("</think_digit>"):
+        # Extract content between outer tags
+        inner_content = reasoning[13:-14]  # Remove <think_digit> and </think_digit>
+        existing_tokens = len(inner_content.split()) if inner_content.strip() else 0
+
+        # Add padding before closing tag
+        padding_needed = max(
+            0, target_tokens - existing_tokens - 2
+        )  # -2 for open/close tags
+        padding = "<noop>" * padding_needed
+
+        return f"<think_digit>{inner_content}{padding}</think_digit>"
+
+    elif reasoning.startswith("<think_multi>") and reasoning.endswith("</think_multi>"):
+        # Extract content between outer tags
+        inner_content = reasoning[13:-14]  # Remove <think_multi> and </think_multi>
+        existing_tokens = len(inner_content.split()) if inner_content.strip() else 0
+
+        # Add padding before closing tag
+        padding_needed = max(
+            0, target_tokens - existing_tokens - 2
+        )  # -2 for open/close tags
+        padding = "<noop>" * padding_needed
+
+        return f"<think_multi>{inner_content}{padding}</think_multi>"
+
+    return reasoning
+
+
 def generate_chain_of_thought(a: int, b: int) -> str:
     """Generate chain-of-thought reasoning for addition.
 
@@ -99,6 +162,7 @@ def generate_addition_examples(
     max_digits: int = 8,
     seed: int = 42,
     include_three_operands: bool = True,
+    fixed_length_cot: bool = False,
 ) -> list[str]:
     """Generate addition examples with chain-of-thought for multi-digit problems.
 
@@ -107,10 +171,12 @@ def generate_addition_examples(
         max_digits: Maximum number of digits per operand (1-8)
         seed: Random seed for reproducibility
         include_three_operands: Whether to include 3-operand examples
+        fixed_length_cot: Whether to pad CoT to fixed length with <noop> tokens
 
     Returns:
         List of arithmetic expressions in format "a+b=<think_digit>...</think_digit>c<end>"
         or "a+b+c=<think_multi>...</think_multi>d<end>" with recursive reasoning
+        If fixed_length_cot is True, pads reasoning to 4 * max(digits in operands) + 2 tokens
     """
     random.seed(seed)
     examples = []
@@ -133,6 +199,9 @@ def generate_addition_examples(
         # Generate chain-of-thought reasoning
         reasoning = generate_chain_of_thought(a, b)
 
+        # Apply fixed-length padding if enabled
+        reasoning = pad_cot_to_fixed_length(reasoning, [a, b], fixed_length_cot)
+
         if reasoning:
             example = f"{a}+{b}={reasoning}{result}<end>"
         else:
@@ -149,6 +218,9 @@ def generate_addition_examples(
 
         # Generate recursive chain-of-thought reasoning
         reasoning = generate_recursive_chain_of_thought([a, b, c])
+
+        # Apply fixed-length padding if enabled
+        reasoning = pad_cot_to_fixed_length(reasoning, [a, b, c], fixed_length_cot)
 
         if reasoning:
             example = f"{a}+{b}+{c}={reasoning}{result}<end>"
