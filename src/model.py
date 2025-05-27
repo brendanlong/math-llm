@@ -16,6 +16,167 @@ from .tokenizer import VOCAB_SIZE
 MAX_SEQUENCE_LENGTH = 1024
 
 
+def remove_cot_content(tokens: list[int]) -> list[int]:
+    """Remove content inside CoT tags while keeping the opening/closing tags.
+
+    Args:
+        tokens: List of token IDs
+
+    Returns:
+        Filtered list with CoT content removed but tags preserved
+    """
+    from .tokenizer import ArithmeticTokenizer
+
+    tokenizer = ArithmeticTokenizer()
+
+    # Token IDs for CoT tags
+    think_digit_open = tokenizer.vocab["<think_digit>"]
+    think_digit_close = tokenizer.vocab["</think_digit>"]
+    think_multi_open = tokenizer.vocab["<think_multi>"]
+    think_multi_close = tokenizer.vocab["</think_multi>"]
+
+    result = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+
+        # Check for opening CoT tags
+        if token == think_digit_open:
+            # Add opening tag
+            result.append(token)
+            i += 1
+
+            # Skip all content until closing tag
+            while i < len(tokens) and tokens[i] != think_digit_close:
+                i += 1
+
+            # Add closing tag if found
+            if i < len(tokens):
+                result.append(tokens[i])
+                i += 1
+
+        elif token == think_multi_open:
+            # Add opening tag
+            result.append(token)
+            i += 1
+
+            # Skip all content until closing tag
+            while i < len(tokens) and tokens[i] != think_multi_close:
+                i += 1
+
+            # Add closing tag if found
+            if i < len(tokens):
+                result.append(tokens[i])
+                i += 1
+        else:
+            # Regular token, keep as is
+            result.append(token)
+            i += 1
+
+    return result
+
+
+def create_cot_mask(tokens: torch.Tensor) -> torch.Tensor:
+    """Create mask for CoT content (True = keep, False = ignore in loss).
+
+    Args:
+        tokens: Token tensor of shape (batch_size, seq_len)
+
+    Returns:
+        Boolean mask of same shape where True means keep for loss computation
+    """
+    from .tokenizer import ArithmeticTokenizer
+
+    tokenizer = ArithmeticTokenizer()
+
+    # Token IDs for CoT tags
+    think_digit_open = tokenizer.vocab["<think_digit>"]
+    think_digit_close = tokenizer.vocab["</think_digit>"]
+    think_multi_open = tokenizer.vocab["<think_multi>"]
+    think_multi_close = tokenizer.vocab["</think_multi>"]
+
+    batch_size, seq_len = tokens.shape
+    mask = torch.ones_like(tokens, dtype=torch.bool)
+
+    for b in range(batch_size):
+        i = 0
+        while i < seq_len:
+            token = tokens[b, i].item()
+
+            # Check for opening CoT tags
+            if token == think_digit_open:
+                i += 1  # Keep opening tag
+                # Mask content until closing tag
+                while i < seq_len and tokens[b, i].item() != think_digit_close:
+                    mask[b, i] = False
+                    i += 1
+                # Keep closing tag (i points to it now)
+                i += 1
+
+            elif token == think_multi_open:
+                i += 1  # Keep opening tag
+                # Mask content until closing tag
+                while i < seq_len and tokens[b, i].item() != think_multi_close:
+                    mask[b, i] = False
+                    i += 1
+                # Keep closing tag (i points to it now)
+                i += 1
+            else:
+                i += 1
+
+    return mask
+
+
+def compute_cot_agnostic_loss(
+    logits: torch.Tensor, labels: torch.Tensor, cot_agnostic: bool = True
+) -> torch.Tensor:
+    """Compute loss with optional CoT content masking.
+
+    Args:
+        logits: Model predictions of shape (batch_size, seq_len, vocab_size)
+        labels: Target labels of shape (batch_size, seq_len)
+        cot_agnostic: If True, mask CoT content in loss computation
+
+    Returns:
+        Computed loss tensor
+    """
+    # Handle sequence length differences
+    _, logits_seq_len, _ = logits.shape
+    labels_seq_len = labels.shape[1]
+    min_seq_len = min(logits_seq_len, labels_seq_len)
+
+    # Shift for next-token prediction
+    shift_logits = logits[:, : min_seq_len - 1, :].contiguous()
+    shift_labels = labels[:, 1:min_seq_len].contiguous()
+
+    if cot_agnostic:
+        # Create mask for non-CoT content (True = keep, False = ignore)
+        mask = create_cot_mask(labels)
+        shift_mask = mask[:, 1:min_seq_len].contiguous()
+
+        # Flatten tensors
+        shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
+        shift_labels_flat = shift_labels.view(-1)
+        shift_mask_flat = shift_mask.view(-1)
+
+        # Apply mask - only compute loss on non-masked tokens
+        if shift_mask_flat.any():
+            masked_logits = shift_logits_flat[shift_mask_flat]
+            masked_labels = shift_labels_flat[shift_mask_flat]
+
+            loss_fct = nn.CrossEntropyLoss()
+            return loss_fct(masked_logits, masked_labels)
+        else:
+            return torch.tensor(0.0, device=logits.device, requires_grad=True)
+    else:
+        # Standard loss computation
+        loss_fct = nn.CrossEntropyLoss()
+        shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
+        shift_labels_flat = shift_labels.view(-1)
+
+        return loss_fct(shift_logits_flat, shift_labels_flat)
+
+
 class PositionalEncoding(nn.Module):
     """Sinusoidal positional encoding for transformer inputs."""
 
@@ -181,6 +342,7 @@ class ArithmeticModel(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
+        cot_agnostic: bool = False,
         **kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
@@ -219,16 +381,7 @@ class ArithmeticModel(nn.Module):
 
         # Compute loss if labels are provided
         if labels is not None:
-            # Shift logits and labels for next-token prediction
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-
-            # Flatten for loss computation
-            loss_fct = nn.CrossEntropyLoss()
-            shift_logits = shift_logits.view(-1, shift_logits.size(-1))
-            shift_labels = shift_labels.view(-1)
-
-            loss = loss_fct(shift_logits, shift_labels)
+            loss = compute_cot_agnostic_loss(logits, labels, cot_agnostic=cot_agnostic)
             return {"loss": loss, "logits": logits}
 
         return logits

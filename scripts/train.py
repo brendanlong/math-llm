@@ -36,6 +36,55 @@ from src.model import (
 from src.tokenizer import ArithmeticTokenizer
 
 
+class CoTAgnosticTrainer(Trainer):
+    """Custom trainer that supports CoT-agnostic training mode."""
+
+    def __init__(self, cot_agnostic: bool = False, *args: Any, **kwargs: Any) -> None:
+        """Initialize trainer with CoT-agnostic mode setting.
+
+        Args:
+            cot_agnostic: Whether to enable CoT-agnostic training
+            *args: Additional arguments for parent Trainer
+            **kwargs: Additional keyword arguments for parent Trainer
+        """
+        super().__init__(*args, **kwargs)
+        self.cot_agnostic = cot_agnostic
+
+    def compute_loss(
+        self,
+        model: Any,
+        inputs: dict[str, Any],
+        return_outputs: bool = False,
+        num_items_in_batch: Any = None,
+    ) -> Any:
+        """Compute loss with optional CoT-agnostic mode.
+
+        Args:
+            model: The model to compute loss for
+            inputs: Input batch dictionary
+            return_outputs: Whether to return model outputs
+            num_items_in_batch: Number of items in batch (for compatibility)
+
+        Returns:
+            Loss tensor (and optionally outputs)
+        """
+        # Add cot_agnostic parameter to inputs
+        inputs = dict(inputs)  # Make a copy to avoid modifying original
+        inputs["cot_agnostic"] = self.cot_agnostic
+
+        # Forward pass
+        outputs = model(**inputs)
+
+        # Extract loss
+        if isinstance(outputs, dict):
+            loss = outputs.get("loss")
+        else:
+            # Fallback for models that don't return dict
+            loss = outputs
+
+        return (loss, outputs) if return_outputs else loss
+
+
 def setup_logging() -> None:
     """Setup colored logging configuration."""
     # Create logs directory if it doesn't exist
@@ -251,6 +300,11 @@ def main() -> None:
         action="store_true",
         help="Resume training from existing checkpoint in output directory",
     )
+    parser.add_argument(
+        "--cot-agnostic",
+        action="store_true",
+        help="Enable CoT-agnostic training mode (masks chain-of-thought content in loss)",
+    )
 
     args = parser.parse_args()
 
@@ -277,6 +331,7 @@ def main() -> None:
                 "num_epochs": args.num_epochs,
                 "max_length": args.max_length,
                 "seed": args.seed,
+                "cot_agnostic": args.cot_agnostic,
             },
             name=f"arithmetic-{args.model_size}-{args.batch_size}batch-{args.learning_rate}lr",
         )
@@ -303,6 +358,11 @@ def main() -> None:
     logger.info(f"Creating {args.model_size} model")
     model = create_model(args.model_size)
     logger.info(f"Model parameters: {model.count_parameters():,}")
+
+    if args.cot_agnostic:
+        logger.info(
+            "CoT-agnostic training mode enabled - will mask chain-of-thought content in loss computation"
+        )
 
     # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -353,7 +413,8 @@ def main() -> None:
     )
 
     # Create trainer
-    trainer = Trainer(
+    trainer = CoTAgnosticTrainer(
+        cot_agnostic=args.cot_agnostic,
         model=model,
         args=training_args,
         train_dataset=train_loader.dataset,
@@ -368,6 +429,7 @@ def main() -> None:
         "model_parameters": model.count_parameters(),
         "vocab_size": tokenizer.vocab_size,
         "max_length": args.max_length,
+        "cot_agnostic": args.cot_agnostic,
         "training_args": training_args.to_dict(),
     }
 

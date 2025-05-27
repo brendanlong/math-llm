@@ -46,6 +46,20 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 - **Checkpointing**: Save every 1000 steps for quick restart
 - **Monitoring**: Weights & Biases for metrics visualization
 
+### CoT-Agnostic Training Mode
+
+A special training mode that allows the model to think flexibly while maintaining correct final answers:
+
+- **Purpose**: Remove dependence on specific chain-of-thought formatting while preserving reasoning capability
+- **Mechanism**: Before computing loss, removes all tokens between `<think_digit>` and `</think_digit>` (and similarly for `<think_multi>`) from both labels and predictions, except for the opening and closing tags themselves
+- **Benefits**:
+  - Model can develop its own internal reasoning patterns
+  - Reduces overfitting to specific CoT formats
+  - Enables training continuation from CoT-trained models without format constraints
+  - Focuses training signal on final answer correctness
+- **Usage**: Toggle-able mode allowing transition from structured CoT training to flexible reasoning
+- **Implementation**: Custom loss computation that filters out internal CoT content while preserving the think tag boundaries
+
 ### Data Generation
 
 - **Size**: 100k examples for single-digit, scale up as needed

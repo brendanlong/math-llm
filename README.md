@@ -70,6 +70,9 @@ python scripts/train.py --no-wandb
 
 # Resume from checkpoint
 python scripts/train.py --output-dir checkpoints/experiment1
+
+# Enable CoT-agnostic training (masks chain-of-thought content in loss)
+python scripts/train.py --cot-agnostic
 ```
 
 #### Training Arguments
@@ -105,6 +108,7 @@ python scripts/train.py --output-dir checkpoints/experiment1
 - `--fp16`: Enable mixed precision training
 - `--no-wandb`: Disable Weights & Biases logging
 - `--seed`: Random seed for reproducibility - default: `42`
+- `--cot-agnostic`: Enable CoT-agnostic training mode (masks chain-of-thought content in loss)
 
 #### Model Sizes
 
