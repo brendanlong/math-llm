@@ -53,30 +53,51 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         """
         expression = self.data[idx]["text"]
 
-        # Tokenize the expression
-        tokens = self.tokenizer.encode(expression)
+        # Split at equals sign for completion-style training
+        if "=" in expression:
+            parts = expression.split("=", 1)
+            prompt = parts[0] + "="  # e.g., "3+5="
+            completion = parts[1]  # e.g., "8<end>" or "<think>...</think>8<end>"
+        else:
+            # Fallback for malformed data
+            prompt = expression
+            completion = ""
+
+        # Tokenize prompt and completion separately
+        prompt_tokens = self.tokenizer.encode(prompt)
+        completion_tokens = self.tokenizer.encode(completion) if completion else []
+
+        # Combine for full sequence
+        full_tokens = prompt_tokens + completion_tokens
 
         # Pad or truncate to max_length
-        if len(tokens) > self.max_length:
-            tokens = tokens[: self.max_length]
+        if len(full_tokens) > self.max_length:
+            full_tokens = full_tokens[: self.max_length]
+            # Adjust prompt length if needed
+            if len(prompt_tokens) >= self.max_length:
+                prompt_tokens = prompt_tokens[: self.max_length - 1]
         else:
             # Pad with end token
-            pad_length = self.max_length - len(tokens)
-            tokens = tokens + [self.tokenizer.vocab["<end>"]] * pad_length
+            pad_length = self.max_length - len(full_tokens)
+            full_tokens = full_tokens + [self.tokenizer.vocab["<end>"]] * pad_length
 
         # Convert to tensor
-        input_ids = torch.tensor(tokens, dtype=torch.long)
+        input_ids = torch.tensor(full_tokens, dtype=torch.long)
 
-        # For causal language modeling, labels are the same as input_ids
-        # but shifted by one position (next token prediction)
+        # For completion-style training:
+        # - Input is the full sequence
+        # - Labels mask the prompt part, only train on completion
         labels = input_ids.clone()
 
-        # Mask padding tokens in labels (loss should ignore them)
-        # Find first natural end token (after result)
-        expression_tokens = self.tokenizer.encode(expression)
-        if len(expression_tokens) < self.max_length:
-            # Mask all padding tokens except the first natural end
-            for i in range(len(expression_tokens), self.max_length):
+        # Mask the prompt tokens in labels (don't compute loss on them)
+        prompt_length = len(prompt_tokens)
+        for i in range(prompt_length):
+            labels[i] = -100
+
+        # Mask padding tokens in labels
+        original_length = len(prompt_tokens) + len(completion_tokens)
+        if original_length < self.max_length:
+            for i in range(original_length, self.max_length):
                 labels[i] = -100
 
         return {"input_ids": input_ids, "labels": labels}
