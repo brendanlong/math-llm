@@ -150,6 +150,8 @@ def parse_thinking_recursively(text: str) -> List[ThinkingNode]:
         # Find matching closing tag, handling nesting
         depth = 1
         pos = content_start
+        closing_tag_found = False
+
         while pos < len(text) and depth > 0:
             # Look for next opening or closing tag of same type
             next_open = text.find(opening_tag, pos)
@@ -175,12 +177,18 @@ def parse_thinking_recursively(text: str) -> List[ThinkingNode]:
                     nodes.append(ThinkingNode(tag_type, thinking_content, children))
 
                     i = next_close + len(closing_tag)
+                    closing_tag_found = True
                     break
                 else:
                     pos = next_close + len(closing_tag)
-        else:
+
+        if not closing_tag_found:
             # Malformed - no matching closing tag found
-            i = len(text)
+            # Treat everything from the opening tag onward as normal text
+            remaining_content = text[start_pos:].strip()
+            if remaining_content:
+                nodes.append(ThinkingNode("text", remaining_content))
+            break
 
     return nodes
 
@@ -352,6 +360,7 @@ def interactive_session(
             # Decode result
             try:
                 generated_text = tokenizer.decode(generated_ids[0].cpu().tolist())
+                print(f"✨ Model output: '{generated_text}'")
 
                 # Extract just the completion part
                 if generated_text.startswith(user_input):
