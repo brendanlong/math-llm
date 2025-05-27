@@ -41,7 +41,7 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 
 - **Framework**: HuggingFace Transformers (most stable/standard)
 - **Optimizer**: AdamW with cosine learning rate schedule
-- **Loss**: Cross-entropy on next-token prediction
+- **Loss**: Cross-entropy on completion-style training (only predict tokens after "=")
 - **Batch Size**: 32-64 (memory permitting on RTX3060)
 - **Checkpointing**: Save every 1000 steps for quick restart
 - **Monitoring**: Weights & Biases for metrics visualization

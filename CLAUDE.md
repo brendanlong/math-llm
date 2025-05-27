@@ -21,7 +21,7 @@ IMPORTANT: Make sure to update TODO.md before checking anything in!
 - **Linting**: `ruff check .` (use `--fix` for auto-fixes)
 - **Type checking**: `pyright`
 - **Pre-commit**: `pre-commit run` (runs all checks)
-- **Tests**: `pytest`
+- **Tests**: `pytest` (prefer `pytest` over `python -m pytest`)
 
 ### Project Structure
 

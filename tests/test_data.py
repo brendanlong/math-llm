@@ -127,17 +127,24 @@ class TestArithmeticDataset:
     def test_label_masking(
         self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
     ) -> None:
-        """Test that padding tokens are masked in labels."""
+        """Test that prompt tokens and padding are masked in labels for completion-style training."""
         dataset = ArithmeticDataset(temp_data_file, tokenizer, max_length=32)
-        item = dataset[0]
+        item = dataset[0]  # "3+5=8<end>"
 
-        original_length = len(tokenizer.encode("3+5=8<end>"))
+        # For completion-style training, we mask prompt tokens (everything before and including "=")
+        prompt_tokens = tokenizer.encode("3+5=")
+        completion_tokens = tokenizer.encode("8<end>")
 
-        # Original content should not be masked
-        for i in range(original_length):
+        # Prompt tokens should be masked
+        for i in range(len(prompt_tokens)):
+            assert item["labels"][i].item() == -100
+
+        # Completion tokens should not be masked
+        for i in range(len(prompt_tokens), len(prompt_tokens) + len(completion_tokens)):
             assert item["labels"][i].item() != -100
 
-        # Padding should be masked (except first natural end token)
+        # Padding tokens should be masked
+        original_length = len(prompt_tokens) + len(completion_tokens)
         for i in range(original_length, 32):
             assert item["labels"][i].item() == -100
 
