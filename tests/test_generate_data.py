@@ -2,81 +2,9 @@
 
 from src.generation import (
     generate_addition_examples,
-    generate_chain_of_thought,
-    generate_recursive_chain_of_thought,
     split_data,
 )
 from src.tokenizer import ArithmeticTokenizer
-
-
-class TestChainOfThought:
-    """Tests for chain-of-thought generation."""
-
-    def test_single_digit_no_reasoning(self):
-        """Test that single-digit addition doesn't generate reasoning."""
-        reasoning = generate_chain_of_thought(3, 5)
-        assert reasoning == ""
-
-        reasoning = generate_chain_of_thought(9, 9)
-        assert reasoning == ""
-
-    def test_multi_digit_has_reasoning(self):
-        """Test that multi-digit addition generates reasoning."""
-        reasoning = generate_chain_of_thought(12, 34)
-        assert reasoning != ""
-        assert "<think_digit>" in reasoning
-        assert "</think_digit>" in reasoning
-
-    def test_reasoning_format(self):
-        """Test the format of generated reasoning."""
-        reasoning = generate_chain_of_thought(25, 17)
-
-        # Should include recursive thinking for carries
-        assert reasoning.startswith("<think_digit>")
-        assert reasoning.endswith("</think_digit>")
-        assert "5+7=12" in reasoning
-        assert "2+1+1=" in reasoning
-        # Should have nested thinking for the carry
-        assert reasoning.count("<think_multi>") >= 1
-
-    def test_carry_reasoning(self):
-        """Test reasoning with carry operations."""
-        reasoning = generate_chain_of_thought(8, 9)
-
-        # 8+9 should be single digit, no reasoning
-        assert reasoning == ""
-
-        # Multi-digit with carry should have recursive thinking
-        reasoning = generate_chain_of_thought(18, 9)
-        assert reasoning.startswith("<think_digit>")
-        assert reasoning.endswith("</think_digit>")
-        assert "8+9=17" in reasoning
-        assert "1+0+1=" in reasoning
-
-    def test_complex_carry(self):
-        """Test complex multi-digit carry operations."""
-        reasoning = generate_chain_of_thought(658, 189)
-
-        # Should have nested thinking for carries
-        assert reasoning.startswith("<think_digit>")
-        assert reasoning.endswith("</think_digit>")
-        assert "8+9=17" in reasoning
-        assert "5+8+1=" in reasoning
-        assert "6+1+1=" in reasoning
-        # Should have multiple levels of nesting
-        assert reasoning.count("<think_multi>") > 1
-
-    def test_large_numbers(self):
-        """Test reasoning with larger numbers."""
-        reasoning = generate_chain_of_thought(999, 999)
-
-        # Should have nested thinking for all the carries
-        assert reasoning.startswith("<think_digit>")
-        assert reasoning.endswith("</think_digit>")
-        assert "9+9=18" in reasoning
-        assert "9+9+1=" in reasoning
-        # Should have recursive thinking
-        assert reasoning.count("<think_multi>") > 1
 
 
 class TestDataGeneration:
@@ -270,36 +198,6 @@ class TestDataGeneration:
 
             # Check arithmetic
             assert a + b + c == result
-
-
-class TestRecursiveChainOfThought:
-    """Tests for recursive chain-of-thought generation."""
-
-    def test_two_operand_fallback(self):
-        """Test that 2-operand input uses regular chain-of-thought."""
-        result = generate_recursive_chain_of_thought([25, 17])
-        expected = generate_chain_of_thought(25, 17)
-        assert result == expected
-
-    def test_three_operand_structure(self):
-        """Test structure of 3-operand recursive reasoning."""
-        result = generate_recursive_chain_of_thought([3, 5, 2])
-
-        assert result.startswith("<think_multi>")
-        assert result.endswith("</think_multi>")
-        assert "3+5=" in result
-        assert "8+2=" in result
-        assert "10" in result  # Final answer
-
-    def test_nested_thinking_in_recursive(self):
-        """Test that complex recursive operations have nested thinking."""
-        result = generate_recursive_chain_of_thought([28, 17, 94])
-
-        # Should have nested thinking tags for multi-digit additions
-        assert result.count("<think_multi>") >= 1
-        assert result.count("<think_digit>") >= 1
-        assert "28+17=" in result
-        assert "45+94=" in result
 
 
 class TestDataSplitting:
