@@ -11,7 +11,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional
 
 import colorlog
 import torch
@@ -96,11 +96,11 @@ class ThinkingNode:
 
     def __init__(
         self,
-        tag_type: str,
+        tag_type: Literal["think_digit", "think_multi", "text"],
         content: str,
         children: Optional[List["ThinkingNode"]] = None,
     ):
-        self.tag_type = tag_type  # 'think_digit', 'think_multi', or 'text'
+        self.tag_type = tag_type
         self.content = content
         self.children = children or []
 
@@ -108,8 +108,8 @@ class ThinkingNode:
         return f"ThinkingNode({self.tag_type}, content='{self.content[:20]}...', children={len(self.children)})"
 
 
-def parse_thinking_recursively(text: str) -> List[ThinkingNode]:
-    """Parse thinking tags recursively to build a tree structure.
+def parse_thinking_tags(text: str) -> List[ThinkingNode]:
+    """Parse thinking tags using a streaming-like approach with tag open/close events.
 
     Args:
         text: Text containing potentially nested thinking tags
@@ -118,77 +118,74 @@ def parse_thinking_recursively(text: str) -> List[ThinkingNode]:
         List of ThinkingNode objects representing the parsed structure
     """
     nodes = []
+    stack = []  # Stack for nested tags: [(tag_type, start_pos, content_start)]
     i = 0
 
     while i < len(text):
-        # Look for opening thinking tags
-        think_match = re.search(r"<(think_digit|think_multi)>", text[i:])
+        # Look for any tag (opening or closing)
+        tag_match = re.search(r"<(/?)(think_digit|think_multi)>", text[i:])
 
-        if not think_match:
-            # No more thinking tags, rest is plain text
+        if not tag_match:
+            # No more tags, rest is plain text
             if i < len(text):
                 content = text[i:].strip()
                 if content:
-                    nodes.append(ThinkingNode("text", content))
+                    if stack:
+                        # We're inside a tag, this will be handled when we close
+                        pass
+                    else:
+                        nodes.append(ThinkingNode("text", content))
             break
 
-        # Add any text before the thinking tag
-        start_pos = i + think_match.start()
-        if start_pos > i:
-            content = text[i:start_pos].strip()
+        tag_pos = i + tag_match.start()
+        is_closing = tag_match.group(1) == "/"
+        tag_type = tag_match.group(2)
+        tag_text = tag_match.group(0)
+
+        # Add any text before this tag
+        if tag_pos > i:
+            content = text[i:tag_pos].strip()
             if content:
-                nodes.append(ThinkingNode("text", content))
-
-        # Find the matching closing tag
-        tag_type = think_match.group(1)
-        opening_tag = f"<{tag_type}>"
-        closing_tag = f"</{tag_type}>"
-
-        # Start after the opening tag
-        content_start = start_pos + len(opening_tag)
-
-        # Find matching closing tag, handling nesting
-        depth = 1
-        pos = content_start
-        closing_tag_found = False
-
-        while pos < len(text) and depth > 0:
-            # Look for next opening or closing tag of same type
-            next_open = text.find(opening_tag, pos)
-            next_close = text.find(closing_tag, pos)
-
-            if next_close == -1:
-                # No closing tag found
-                break
-
-            if next_open != -1 and next_open < next_close:
-                # Found nested opening tag
-                depth += 1
-                pos = next_open + len(opening_tag)
-            else:
-                # Found closing tag
-                depth -= 1
-                if depth == 0:
-                    # This is our matching closing tag
-                    thinking_content = text[content_start:next_close]
-
-                    # Recursively parse the content inside thinking tags
-                    children = parse_thinking_recursively(thinking_content)
-                    nodes.append(ThinkingNode(tag_type, thinking_content, children))
-
-                    i = next_close + len(closing_tag)
-                    closing_tag_found = True
-                    break
+                if stack:
+                    # We're inside a tag, this will be handled when we close
+                    pass
                 else:
-                    pos = next_close + len(closing_tag)
+                    nodes.append(ThinkingNode("text", content))
 
-        if not closing_tag_found:
-            # Malformed - no matching closing tag found
-            # Treat everything from the opening tag onward as normal text
-            remaining_content = text[start_pos:].strip()
-            if remaining_content:
-                nodes.append(ThinkingNode("text", remaining_content))
-            break
+        if is_closing:
+            # Closing tag event
+            if stack and stack[-1][0] == tag_type:
+                # Matching closing tag found
+                parent_tag_type, start_pos, content_start = stack.pop()
+                thinking_content = text[content_start:tag_pos]
+
+                # Recursively parse the content inside this tag
+                children = parse_thinking_tags(thinking_content)
+                node = ThinkingNode(parent_tag_type, thinking_content, children)
+
+                if stack:
+                    # We're still inside another tag, this will be handled later
+                    pass
+                else:
+                    nodes.append(node)
+            else:
+                # Unmatched closing tag - treat as text
+                if not stack:
+                    nodes.append(ThinkingNode("text", tag_text))
+
+        else:
+            # Opening tag event
+            content_start = tag_pos + len(tag_text)
+            stack.append((tag_type, tag_pos, content_start))
+
+        i = tag_pos + len(tag_text)
+
+    # Handle any unclosed tags - treat as text
+    while stack:
+        tag_type, start_pos, content_start = stack.pop()
+        remaining_content = text[start_pos:].strip()
+        if remaining_content:
+            nodes.append(ThinkingNode("text", remaining_content))
 
     return nodes
 
@@ -225,53 +222,6 @@ def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
                 for line in lines:
                     if line.strip():
                         print(f"{indent_str}  {line.strip()}")
-
-
-def parse_reasoning_output(text: str) -> Tuple[str, List[ThinkingNode], str]:
-    """Parse model output to separate reasoning from answer.
-
-    Handles both <think_digit> and <think_multi> reasoning sections recursively.
-
-    Args:
-        text: Full model output text
-
-    Returns:
-        Tuple of (prefix, thinking_nodes, answer)
-    """
-    # Find the first thinking tag
-    first_think = re.search(r"<(think_digit|think_multi)>", text)
-
-    if not first_think:
-        # No thinking tags found
-        return text, [], ""
-
-    # Split into prefix, thinking section, and answer
-    prefix = text[: first_think.start()]
-
-    # Parse thinking section recursively
-    thinking_section = text[first_think.start() :]
-
-    # Find where thinking ends (after the last closing tag)
-    last_close_digit = thinking_section.rfind("</think_digit>")
-    last_close_multi = thinking_section.rfind("</think_multi>")
-
-    if last_close_digit == -1 and last_close_multi == -1:
-        # No closing tags found
-        thinking_nodes = parse_thinking_recursively(thinking_section)
-        return prefix, thinking_nodes, ""
-
-    # Find the actual end of thinking section
-    if last_close_digit > last_close_multi:
-        thinking_end = last_close_digit + len("</think_digit>")
-    else:
-        thinking_end = last_close_multi + len("</think_multi>")
-
-    thinking_content = thinking_section[:thinking_end]
-    answer = thinking_section[thinking_end:]
-
-    thinking_nodes = parse_thinking_recursively(thinking_content)
-
-    return prefix, thinking_nodes, answer
 
 
 def interactive_session(
@@ -333,7 +283,7 @@ def interactive_session(
                 continue
 
             # Generate completion
-            print(f"💭 Generating completion for: '{user_input}'")
+            print(f"💭 Generating completion for: {user_input}")
 
             with torch.no_grad():
                 initial_length = input_tensor.size(1)
@@ -360,31 +310,23 @@ def interactive_session(
             # Decode result
             try:
                 generated_text = tokenizer.decode(generated_ids[0].cpu().tolist())
-                print(f"✨ Model output: '{generated_text}'")
+                print(f"✨ Model output: {generated_text}")
 
-                # Extract just the completion part
-                if generated_text.startswith(user_input):
-                    completion = generated_text[len(user_input) :]
+                # Parse reasoning from completion
+                thinking_nodes = parse_thinking_tags(generated_text)
+                # Check if we have any thinking tags (not just text)
+                has_thinking_tags = any(
+                    node.tag_type != "text" for node in thinking_nodes
+                )
 
-                    # Parse reasoning from completion
-                    prefix, thinking_nodes, answer = parse_reasoning_output(completion)
+                if has_thinking_tags:
+                    # Display thinking tree structure
+                    print("🤔 Chain of thought:")
+                    display_thinking_tree(thinking_nodes, indent=1)
 
-                    if thinking_nodes:
-                        # Display thinking tree structure
-                        print("🤔 Chain of thought:")
-                        display_thinking_tree(thinking_nodes, indent=1)
-
-                        if answer.strip():
-                            print(f"✨ Final answer: {prefix}{answer}")
-                        print(
-                            f"📝 Complete: '{user_input}' → '{user_input}{completion}'"
-                        )
-                    else:
-                        print(
-                            f"✨ Model completion: '{user_input}' → '{user_input}{completion}'"
-                        )
-                else:
-                    print(f"✨ Model output: '{generated_text}'")
+                print(
+                    f"✅ Answer: {''.join(n.content for n in thinking_nodes if n.tag_type == 'text').removesuffix('<end>')}"
+                )
 
                 # Show token breakdown if helpful (only for very short sequences)
                 if len(generated_ids[0]) <= 10:  # Only for very short sequences
