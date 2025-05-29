@@ -2,6 +2,37 @@
 
 A minimal transformer model for learning basic arithmetic operations with chain-of-thought reasoning, starting with single-digit addition and scaling to multi-digit problems.
 
+Currently the model learns to mimic human-understable reasoning, but the goal is to make it learn to reason without instructions, and without RL, to try to learn something from how the model "naturally" learns to reason and if we can understand it.
+
+The current CoT looks like this:
+
+```text
+➤ Enter expression: 99+21=
+💭 Generating completion for: 99+21=
+✨ Model output: 99+21=<think_digit>
+9+1=10
+9+2+1=<think_multi>
+9+2=10
+10+1=<think_digit>
+0+1=1
+1+0=1</think_digit>11</think_multi>11</think_digit>110<end>
+🤔 Chain of thought:
+  99+21=
+  🧮 Think Digit:
+    9+1=10
+    9+2+1=
+    🎯 Think Multi:
+      9+2=10
+      10+1=
+      🧮 Think Digit:
+        0+1=1
+        1+0=1
+      11
+    11
+  110<end>
+✅ Answer: 99+21=110
+```
+
 ## Quick Start
 
 ```bash
