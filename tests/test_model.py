@@ -501,3 +501,39 @@ class TestCoTAgnosticLoss:
         # CoT-agnostic loss should be low (only final answer matters)
         loss = compute_loss(perfect_logits, tokens, cot_agnostic=True)
         assert loss.item() < 1e-6
+
+    def test_cot_agnostic_with_unclosed_cot(self):
+        """Test that CoT-agnostic loss differs from regular loss when CoT content varies."""
+        tokenizer = ArithmeticTokenizer()
+
+        # Two sequences: different outputs but one has CoT that doesn't close
+        text1 = "12+34=<think_digit>\n2+4=6\n1+3=4</think_digit>46<end>"
+        text2 = "12+34=<think_digit>\n9+9=6\n7+7=4<noop>99<end>"
+
+        tokens1 = torch.tensor([tokenizer.encode(text1)])
+        tokens2 = torch.tensor([tokenizer.encode(text2)])
+
+        # Ensure same length for this test
+        assert tokens1.shape[1] == tokens2.shape[1], (
+            f"Lengths differ: {tokens1.shape[1]} vs {tokens2.shape[1]}"
+        )
+
+        vocab_size = len(tokenizer.vocab)
+        seq_len = tokens1.shape[1]
+
+        # Create logits that are perfect for text1
+        perfect_logits1 = torch.full((1, seq_len, vocab_size), -1000.0)
+        for pos in range(seq_len - 1):
+            correct_next_token = tokens1[0, pos + 1]
+            perfect_logits1[0, pos, correct_next_token] = 1000.0
+        perfect_logits1.requires_grad_(True)
+
+        # Regular loss: should be high when predicting text2 with logits trained on text1
+        regular_loss = compute_loss(perfect_logits1, tokens2, cot_agnostic=False)
+
+        # CoT-agnostic loss: should be high since think tag doesn't end
+        cot_agnostic_loss = compute_loss(perfect_logits1, tokens2, cot_agnostic=True)
+
+        # CoT-agnostic loss should be much lower than regular loss
+        assert cot_agnostic_loss.item() > 1.0  # Should be substantial
+        assert regular_loss.item() > 1.0  # Should be substantial

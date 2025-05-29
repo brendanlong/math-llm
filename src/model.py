@@ -35,36 +35,51 @@ def create_cot_mask(tokens: torch.Tensor) -> torch.Tensor:
     think_multi_open = tokenizer.vocab["<think_multi>"]
     think_multi_close = tokenizer.vocab["</think_multi>"]
 
-    batch_size, seq_len = tokens.shape
+    batch_size, _ = tokens.shape
     mask = torch.ones_like(tokens, dtype=torch.bool)
 
     for b in range(batch_size):
-        i = 0
-        while i < seq_len:
-            token = tokens[b, i].item()
+        # Find all tag positions for this batch
+        sequence = tokens[b]
 
-            # Check for opening CoT tags
-            if token == think_digit_open:
-                i += 1  # Keep opening tag
-                # Mask content until closing tag
-                while i < seq_len and tokens[b, i].item() != think_digit_close:
-                    mask[b, i] = False
-                    i += 1
-                # Keep closing tag (i points to it now)
-                i += 1
+        # Process digit CoT blocks
+        digit_opens = (sequence == think_digit_open).nonzero(as_tuple=False).squeeze(-1)
+        digit_closes = (
+            (sequence == think_digit_close).nonzero(as_tuple=False).squeeze(-1)
+        )
+        _mask_cot_blocks(mask, b, digit_opens, digit_closes)
 
-            elif token == think_multi_open:
-                i += 1  # Keep opening tag
-                # Mask content until closing tag
-                while i < seq_len and tokens[b, i].item() != think_multi_close:
-                    mask[b, i] = False
-                    i += 1
-                # Keep closing tag (i points to it now)
-                i += 1
-            else:
-                i += 1
+        # Process multi CoT blocks
+        multi_opens = (sequence == think_multi_open).nonzero(as_tuple=False).squeeze(-1)
+        multi_closes = (
+            (sequence == think_multi_close).nonzero(as_tuple=False).squeeze(-1)
+        )
+        _mask_cot_blocks(mask, b, multi_opens, multi_closes)
 
     return mask
+
+
+def _mask_cot_blocks(
+    mask: torch.Tensor, batch_idx: int, opens: torch.Tensor, closes: torch.Tensor
+) -> None:
+    """Mask content between matched opening and closing tags.
+
+    Args:
+        mask: Mask tensor to update
+        batch_idx: Batch index
+        opens: Positions of opening tags
+        closes: Positions of closing tags
+    """
+    for open_pos in opens:
+        open_pos = open_pos.item()
+
+        # Find the first closing tag after this opening tag
+        close_idx = torch.searchsorted(closes, open_pos + 1)
+
+        if close_idx < len(closes):
+            close_pos = closes[close_idx].item()
+            # Mask content between tags (excluding the tags themselves)
+            mask[batch_idx, open_pos + 1 : close_pos] = False
 
 
 def compute_loss(
@@ -282,15 +297,15 @@ class ArithmeticModel(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         cot_agnostic: bool = False,
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
-            attention_mask: Optional attention mask
+            attention_mask: Optional attention mask (unused)
             labels: Optional labels for computing loss
-            **kwargs: Additional arguments (ignored)
+            cot_agnostic: Whether to use CoT-agnostic loss computation
 
         Returns:
             If labels provided: dict with 'loss' and 'logits'
