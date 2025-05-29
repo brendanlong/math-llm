@@ -8,6 +8,7 @@ from src.model import (
     PositionalEncoding,
     TransformerBlock,
     compute_loss,
+    create_cot_mask,
     create_large_model,
     create_medium_model,
     create_small_model,
@@ -322,3 +323,181 @@ class TestCoTAgnosticLoss:
         assert cross_loss.item() < 1e-6  # Should be low since non-CoT parts match
         cross_loss = compute_loss(perfect_logits2, tokens1, cot_agnostic=True)
         assert cross_loss.item() < 1e-6
+
+    def test_cot_mask_creation(self):
+        """Test that CoT mask correctly identifies content to keep vs mask."""
+
+        tokenizer = ArithmeticTokenizer()
+
+        # Test sequence with CoT content
+        text = "12+34=<think_digit>\n2+4=6\n1+3=4</think_digit>46<end>"
+        tokens = torch.tensor([tokenizer.encode(text)])
+
+        mask = create_cot_mask(tokens)
+
+        # Verify mask shape
+        assert mask.shape == tokens.shape
+
+        # Find positions of CoT tags
+        think_open_pos = None
+        think_close_pos = None
+        for i, token in enumerate(tokens[0]):
+            if token.item() == tokenizer.vocab["<think_digit>"]:
+                think_open_pos = i
+            elif token.item() == tokenizer.vocab["</think_digit>"]:
+                think_close_pos = i
+                break
+
+        assert think_open_pos is not None
+        assert think_close_pos is not None
+
+        # Check that opening and closing tags are kept (True)
+        assert mask[0, think_open_pos]
+        assert mask[0, think_close_pos]
+
+        # Check that content between tags is masked (False)
+        for i in range(think_open_pos + 1, think_close_pos):
+            assert not mask[0, i]
+
+        # Check that content outside CoT is kept
+        for i in range(0, think_open_pos):
+            assert mask[0, i]
+        for i in range(think_close_pos + 1, len(tokens[0])):
+            assert mask[0, i]
+
+    def test_cot_agnostic_vs_regular_loss_difference(self):
+        """Test that CoT-agnostic loss differs from regular loss when CoT content varies."""
+        tokenizer = ArithmeticTokenizer()
+
+        # Two sequences: same non-CoT parts, different CoT content
+        text1 = "12+34=<think_digit>\n2+4=6\n1+3=4</think_digit>46<end>"
+        text2 = "12+34=<think_digit>\n9+9=6\n7+7=4</think_digit>46<end>"
+
+        tokens1 = torch.tensor([tokenizer.encode(text1)])
+        tokens2 = torch.tensor([tokenizer.encode(text2)])
+
+        # Ensure same length for this test
+        assert tokens1.shape[1] == tokens2.shape[1], (
+            f"Lengths differ: {tokens1.shape[1]} vs {tokens2.shape[1]}"
+        )
+
+        vocab_size = len(tokenizer.vocab)
+        seq_len = tokens1.shape[1]
+
+        # Create logits that are perfect for text1
+        perfect_logits1 = torch.full((1, seq_len, vocab_size), -1000.0)
+        for pos in range(seq_len - 1):
+            correct_next_token = tokens1[0, pos + 1]
+            perfect_logits1[0, pos, correct_next_token] = 1000.0
+        perfect_logits1.requires_grad_(True)
+
+        # Regular loss: should be high when predicting text2 with logits trained on text1
+        regular_loss = compute_loss(perfect_logits1, tokens2, cot_agnostic=False)
+
+        # CoT-agnostic loss: should be low since non-CoT parts match
+        cot_agnostic_loss = compute_loss(perfect_logits1, tokens2, cot_agnostic=True)
+
+        # CoT-agnostic loss should be much lower than regular loss
+        assert cot_agnostic_loss.item() < regular_loss.item()
+        assert cot_agnostic_loss.item() < 1e-6  # Should be near zero
+        assert regular_loss.item() > 1.0  # Should be substantial
+
+    def test_sequence_length_mismatch_handling(self):
+        """Test that loss computation handles different sequence lengths correctly."""
+        tokenizer = ArithmeticTokenizer()
+
+        # Create sequences of different lengths
+        short_text = "1+2=3<end>"
+        long_text = "12+34=<think_digit>\n2+4=6\n1+3=4</think_digit>46<end>"
+
+        short_tokens = torch.tensor([tokenizer.encode(short_text)])
+        long_tokens = torch.tensor([tokenizer.encode(long_text)])
+
+        vocab_size = len(tokenizer.vocab)
+
+        # Create logits for longer sequence with gradient tracking
+        long_seq_len = long_tokens.shape[1]
+        logits = torch.randn(1, long_seq_len, vocab_size, requires_grad=True)
+
+        # Test with shorter labels - should not crash
+        loss1 = compute_loss(logits, short_tokens)
+        assert isinstance(loss1, torch.Tensor)
+        assert loss1.requires_grad
+
+        # Test with CoT-agnostic mode
+        loss2 = compute_loss(logits, short_tokens, cot_agnostic=True)
+        assert isinstance(loss2, torch.Tensor)
+        assert loss2.requires_grad
+
+    def test_next_token_prediction_alignment(self):
+        """Test that the shifting for next-token prediction is correct."""
+        tokenizer = ArithmeticTokenizer()
+        text = "1+2=3<end>"
+        tokens = torch.tensor([tokenizer.encode(text)])
+
+        vocab_size = len(tokenizer.vocab)
+        seq_len = tokens.shape[1]
+
+        # Create logits where each position predicts a specific wrong token
+        # except position i predicts the correct token i+1
+        wrong_token_id = 0  # Use token '0' as wrong prediction
+        logits = torch.full((1, seq_len, vocab_size), -1000.0)
+
+        # Make wrong token very likely everywhere
+        logits[:, :, wrong_token_id] = 1000.0
+
+        # Now make correct next-token predictions even more likely
+        for pos in range(seq_len - 1):
+            correct_next_token = tokens[0, pos + 1]
+            logits[0, pos, correct_next_token] = 2000.0  # Higher than wrong token
+
+        loss = compute_loss(logits, tokens)
+
+        # Loss should be low since we predict next tokens correctly
+        assert loss.item() < 1e-6
+
+    def test_empty_cot_mask_handling(self):
+        """Test loss computation when CoT mask results in very few valid tokens."""
+        tokenizer = ArithmeticTokenizer()
+
+        # Create a sequence that's mostly CoT content
+        # The issue is that after shifting for next-token prediction,
+        # the mask still keeps the closing tag, so it's not actually empty
+        think_open = tokenizer.vocab["<think_digit>"]
+        think_close = tokenizer.vocab["</think_digit>"]
+        digit_2 = tokenizer.vocab["2"]
+
+        # Sequence: <think_digit>2</think_digit>
+        tokens = torch.tensor([[think_open, digit_2, think_close]])
+
+        vocab_size = len(tokenizer.vocab)
+        seq_len = tokens.shape[1]
+        logits = torch.randn(1, seq_len, vocab_size, requires_grad=True)
+
+        # Should handle case gracefully
+        loss = compute_loss(logits, tokens, cot_agnostic=True)
+
+        # Should return a valid tensor (not necessarily zero since closing tag is kept)
+        assert isinstance(loss, torch.Tensor)
+        assert loss.requires_grad
+
+    def test_multi_cot_blocks_masking(self):
+        """Test masking works correctly with multiple CoT blocks."""
+        tokenizer = ArithmeticTokenizer()
+
+        # Create sequence with both think_digit and think_multi blocks
+        text = "12+34+56=<think_multi>\n<think_digit>\n2+4=6\n</think_digit>\n<think_digit>\n1+3+5=9\n</think_digit>\n</think_multi>102<end>"
+        tokens = torch.tensor([tokenizer.encode(text)])
+
+        vocab_size = len(tokenizer.vocab)
+        seq_len = tokens.shape[1]
+
+        # Create perfect logits
+        perfect_logits = torch.full((1, seq_len, vocab_size), -1000.0)
+        for pos in range(seq_len - 1):
+            correct_next_token = tokens[0, pos + 1]
+            perfect_logits[0, pos, correct_next_token] = 1000.0
+
+        # CoT-agnostic loss should be low (only final answer matters)
+        loss = compute_loss(perfect_logits, tokens, cot_agnostic=True)
+        assert loss.item() < 1e-6
