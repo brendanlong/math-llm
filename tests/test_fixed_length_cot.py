@@ -3,72 +3,16 @@
 from src.generation import (
     calculate_max_operand_digits,
     generate_addition_examples,
-    pad_cot_to_fixed_length,
 )
 from src.tokenizer import ArithmeticTokenizer
 
 
 def test_calculate_max_operand_digits():
     """Test calculation of maximum digits in operands."""
-    assert calculate_max_operand_digits(1, 2, 3) == 1
-    assert calculate_max_operand_digits(12, 345, 6) == 3
-    assert calculate_max_operand_digits(999, 1000) == 4
-    assert calculate_max_operand_digits(0) == 1
-
-
-def test_pad_cot_to_fixed_length_disabled():
-    """Test that padding is skipped when fixed_length_mode is False."""
-    reasoning = "<think_digit>\n2+3=5</think_digit>"
-    result = pad_cot_to_fixed_length(reasoning, [12, 34], fixed_length_mode=False)
-    assert result == reasoning
-
-
-def test_pad_cot_to_fixed_length_empty_reasoning():
-    """Test that empty reasoning is returned unchanged."""
-    result = pad_cot_to_fixed_length("", [12, 34], fixed_length_mode=True)
-    assert result == ""
-
-
-def test_pad_cot_to_fixed_length_think_digit():
-    """Test padding for think_digit reasoning."""
-    # For operands [12, 34], max digits = 2, target = 4*2+2 = 10 tokens
-    # Content has minimal tokens, should add <noop> padding
-    reasoning = "<think_digit>\n2+4=6\n1+3=4</think_digit>"
-    result = pad_cot_to_fixed_length(reasoning, [12, 34], fixed_length_mode=True)
-
-    # Should contain original content plus <noop> tokens
-    assert result.startswith("<think_digit>")
-    assert result.endswith("</think_digit>")
-    assert "<noop>" in result
-    assert "\n2+4=6\n1+3=4" in result
-
-
-def test_pad_cot_to_fixed_length_think_multi():
-    """Test padding for think_multi reasoning."""
-    reasoning = "<think_multi>\n1+2=3\n3+4=7</think_multi>"
-    result = pad_cot_to_fixed_length(reasoning, [1, 2, 4], fixed_length_mode=True)
-
-    # Should contain original content plus <noop> tokens
-    assert result.startswith("<think_multi>")
-    assert result.endswith("</think_multi>")
-    assert "<noop>" in result
-    assert "\n1+2=3\n3+4=7" in result
-
-
-def test_pad_cot_to_fixed_length_different_digit_counts():
-    """Test padding calculation for different max digit counts."""
-    # 1 digit: target = 4*1+2 = 6 tokens
-    reasoning1 = "<think_digit>\ntest</think_digit>"
-    result1 = pad_cot_to_fixed_length(reasoning1, [5, 7], fixed_length_mode=True)
-    noop_count1 = result1.count("<noop>")
-
-    # 3 digits: target = 4*3+2 = 14 tokens
-    reasoning2 = "<think_digit>\ntest</think_digit>"
-    result2 = pad_cot_to_fixed_length(reasoning2, [123, 456], fixed_length_mode=True)
-    noop_count2 = result2.count("<noop>")
-
-    # Should have more padding for larger operands
-    assert noop_count2 > noop_count1
+    assert calculate_max_operand_digits([1, 2, 3]) == 1
+    assert calculate_max_operand_digits([12, 345, 6]) == 3
+    assert calculate_max_operand_digits([999, 1000]) == 4
+    assert calculate_max_operand_digits([0]) == 1
 
 
 def test_generate_addition_examples_fixed_length_cot():
@@ -77,7 +21,7 @@ def test_generate_addition_examples_fixed_length_cot():
         num_examples=10,
         max_digits=2,
         seed=42,
-        include_three_operands=False,
+        max_operands=3,
         fixed_length_cot=True,
     )
 

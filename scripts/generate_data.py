@@ -70,37 +70,43 @@ def main():
         "--num-examples",
         type=int,
         default=10000,
-        help="Number of examples to generate (default: 10000)",
+        help="Number of examples to generate (default: %(default)s)",
     )
     parser.add_argument(
         "--max-digits",
         type=int,
-        default=8,
-        help="Maximum number of digits per operand (default: 8)",
+        default=2,
+        help="Maximum number of digits per operand (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--max-operands",
+        type=int,
+        default=3,
+        help="Maximum number of operands (default: %(default)s)",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default="data",
-        help="Output directory for datasets (default: data)",
+        help="Output directory for datasets (default: %(default)s)",
     )
     parser.add_argument(
         "--seed",
         type=int,
         default=42,
-        help="Random seed for reproducibility (default: 42)",
+        help="Random seed for reproducibility (default: %(default)s)",
     )
     parser.add_argument(
         "--train-ratio",
         type=float,
         default=0.8,
-        help="Fraction of data for training (default: 0.8)",
+        help="Fraction of data for training (default: %(default)s)",
     )
     parser.add_argument(
         "--val-ratio",
         type=float,
         default=0.1,
-        help="Fraction of data for validation (default: 0.1)",
+        help="Fraction of data for validation (default: %(default)s)",
     )
     parser.add_argument(
         "--fixed-length-cot",
@@ -128,6 +134,7 @@ def main():
         args.max_digits,
         args.seed,
         fixed_length_cot=args.fixed_length_cot,
+        max_operands=args.max_operands,
     )
     print(f"Generated {len(examples)} examples")
 

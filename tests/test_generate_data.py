@@ -13,7 +13,7 @@ class TestDataGeneration:
     def test_generate_basic_examples(self):
         """Test basic example generation."""
         examples = generate_addition_examples(
-            num_examples=5, max_digits=1, seed=42, include_three_operands=False
+            num_examples=5, max_digits=1, seed=42, max_operands=2
         )
 
         assert len(examples) == 5
@@ -42,7 +42,7 @@ class TestDataGeneration:
     def test_example_validity(self):
         """Test that generated examples are mathematically correct."""
         examples = generate_addition_examples(
-            num_examples=10, max_digits=2, seed=42, include_three_operands=False
+            num_examples=10, max_digits=2, seed=42, max_operands=2
         )
         tokenizer = ArithmeticTokenizer()
 
@@ -111,7 +111,7 @@ class TestDataGeneration:
     def test_reasoning_consistency(self):
         """Test that reasoning leads to correct answer."""
         examples = generate_addition_examples(
-            num_examples=10, max_digits=2, seed=42, include_three_operands=False
+            num_examples=10, max_digits=2, seed=42, max_operands=2
         )
 
         for example in examples:
@@ -139,7 +139,7 @@ class TestDataGeneration:
     def test_three_operand_examples(self):
         """Test generation of 3-operand examples."""
         examples = generate_addition_examples(
-            num_examples=20, max_digits=1, seed=42, include_three_operands=True
+            num_examples=20, max_digits=1, seed=42, max_operands=3
         )
 
         # Should have both 2-operand and 3-operand examples
@@ -163,7 +163,7 @@ class TestDataGeneration:
     def test_three_operand_validity(self):
         """Test that 3-operand examples are mathematically correct."""
         examples = generate_addition_examples(
-            num_examples=20, max_digits=1, seed=42, include_three_operands=True
+            num_examples=20, max_digits=1, seed=42, max_operands=3
         )
 
         for example in examples:

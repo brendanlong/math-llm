@@ -23,3 +23,6 @@
 # name: test_recursive_chain_of_thought_snapshots.3
   '<think_multi><think_digit>17<think_multi>13<think_digit>41</think_digit>14</think_multi>14<think_multi>78</think_multi>8</think_digit>847<think_digit>11<think_multi>78</think_multi>810</think_digit>1081</think_multi>'
 # ---
+# name: test_recursive_chain_of_thought_snapshots.4
+  '<think_multi><think_digit>17<think_multi>13<think_digit>41</think_digit>14</think_multi>14<think_multi>78</think_multi>8</think_digit>847<think_digit>11<think_multi>78</think_multi>810</think_digit>1081<think_digit>10<think_multi>17<think_digit>81</think_digit>18</think_multi>18<think_multi>01</think_multi>11</think_digit>1180</think_multi>'
+# ---

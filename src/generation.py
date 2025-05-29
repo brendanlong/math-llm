@@ -2,71 +2,10 @@
 
 import random
 
-
-def calculate_max_operand_digits(*operands: int) -> int:
-    """Calculate maximum number of digits in any operand.
-
-    Args:
-        *operands: Variable number of operands
-
-    Returns:
-        Maximum number of digits across all operands
-    """
-    return max(len(str(operand)) for operand in operands)
+from .tokenizer import ArithmeticTokenizer
 
 
-def pad_cot_to_fixed_length(
-    reasoning: str, operands: list[int], fixed_length_mode: bool = False
-) -> str:
-    """Pad chain-of-thought reasoning to fixed length with <noop> tokens.
-
-    Args:
-        reasoning: Original reasoning string (e.g., "<think_digit>...</think_digit>")
-        operands: List of operands to calculate padding from
-        fixed_length_mode: Whether to apply fixed-length padding
-
-    Returns:
-        Padded reasoning string with <noop> tokens if fixed_length_mode is True
-    """
-    if not fixed_length_mode or not reasoning:
-        return reasoning
-
-    # Calculate target length: 4 * max(digits in operands) + 2
-    max_digits = calculate_max_operand_digits(*operands)
-    target_tokens = 4 * max_digits + 2
-
-    # Count existing reasoning tokens (everything between outer think tags)
-    # For nested cases, we only pad the outermost level
-    if reasoning.startswith("<think_digit>") and reasoning.endswith("</think_digit>"):
-        # Extract content between outer tags
-        inner_content = reasoning[13:-14]  # Remove <think_digit> and </think_digit>
-        existing_tokens = len(inner_content.split()) if inner_content.strip() else 0
-
-        # Add padding before closing tag
-        padding_needed = max(
-            0, target_tokens - existing_tokens - 2
-        )  # -2 for open/close tags
-        padding = "<noop>" * padding_needed
-
-        return f"<think_digit>{inner_content}{padding}</think_digit>"
-
-    elif reasoning.startswith("<think_multi>") and reasoning.endswith("</think_multi>"):
-        # Extract content between outer tags
-        inner_content = reasoning[13:-14]  # Remove <think_multi> and </think_multi>
-        existing_tokens = len(inner_content.split()) if inner_content.strip() else 0
-
-        # Add padding before closing tag
-        padding_needed = max(
-            0, target_tokens - existing_tokens - 2
-        )  # -2 for open/close tags
-        padding = "<noop>" * padding_needed
-
-        return f"<think_multi>{inner_content}{padding}</think_multi>"
-
-    return reasoning
-
-
-def generate_chain_of_thought(a: int, b: int) -> str:
+def generate_two_operand_chain_of_though(a: int, b: int) -> str:
     """Generate chain-of-thought reasoning for addition.
 
     Args:
@@ -102,9 +41,7 @@ def generate_chain_of_thought(a: int, b: int) -> str:
         # Show the addition step with recursive thinking when there's a carry (3 numbers)
         if carry > 0:
             # Use recursive thinking for three-number addition
-            recursive_reasoning = generate_recursive_chain_of_thought(
-                [digit_a, digit_b, carry]
-            )
+            recursive_reasoning = generate_chain_of_thought([digit_a, digit_b, carry])
             reasoning.append(recursive_reasoning)
             reasoning.append(str(sum_digits))
         else:
@@ -117,7 +54,7 @@ def generate_chain_of_thought(a: int, b: int) -> str:
     return "".join(reasoning)
 
 
-def generate_recursive_chain_of_thought(operands: list[int]) -> str:
+def generate_chain_of_thought(operands: list[int]) -> str:
     """Generate recursive left-to-right chain-of-thought for multiple operands.
 
     Args:
@@ -128,7 +65,7 @@ def generate_recursive_chain_of_thought(operands: list[int]) -> str:
     """
     if len(operands) < 3:
         # For 2 operands, use original chain-of-thought
-        return generate_chain_of_thought(operands[0], operands[1])
+        return generate_two_operand_chain_of_though(operands[0], operands[1])
 
     # For 3+ operands, show recursive left-to-right addition
     reasoning = ["<think_multi>"]
@@ -140,7 +77,7 @@ def generate_recursive_chain_of_thought(operands: list[int]) -> str:
         next_operand = operands[i]
 
         # Get the reasoning for this step (with nested thinking tags if multi-digit)
-        step_reasoning = generate_chain_of_thought(current_sum, next_operand)
+        step_reasoning = generate_two_operand_chain_of_though(current_sum, next_operand)
         if step_reasoning:
             # Keep the nested thinking tags for recursive reasoning
             reasoning.append(step_reasoning)
@@ -153,11 +90,15 @@ def generate_recursive_chain_of_thought(operands: list[int]) -> str:
     return "".join(reasoning)
 
 
+def calculate_max_operand_digits(operands: list[int]) -> int:
+    return max(len(str(operand)) for operand in operands)
+
+
 def generate_addition_examples(
     num_examples: int,
-    max_digits: int = 8,
+    max_digits: int = 3,
     seed: int = 42,
-    include_three_operands: bool = True,
+    max_operands: int = 3,
     fixed_length_cot: bool = False,
 ) -> list[str]:
     """Generate addition examples with chain-of-thought for multi-digit problems.
@@ -166,67 +107,48 @@ def generate_addition_examples(
         num_examples: Number of examples to generate
         max_digits: Maximum number of digits per operand (1-8)
         seed: Random seed for reproducibility
-        include_three_operands: Whether to include 3-operand examples
+        max_operands: The maximum number of operands to add
         fixed_length_cot: Whether to pad CoT to fixed length with <noop> tokens
 
     Returns:
         List of arithmetic expressions in format "a+b=<think_digit>...</think_digit>c<end>"
         or "a+b+c=<think_multi>...</think_multi>d<end>" with recursive reasoning
-        If fixed_length_cot is True, pads reasoning to 4 * max(digits in operands) + 2 tokens
+        If fixed_length_cot is True, pads reasoning to 10 * max(digits in operands) * max(number of operands)
     """
+    assert max_digits >= 1
+    assert max_operands >= 2
+
     random.seed(seed)
     examples = []
     max_value = 10**max_digits - 1
+    tokenizer = ArithmeticTokenizer()
+    cot_length = 10 * max_digits * max_operands
 
-    # Determine the split between 2-operand and 3-operand examples
-    if include_three_operands:
-        two_operand_count = int(num_examples * 0.7)  # 70% two operands
-        three_operand_count = num_examples - two_operand_count  # 30% three operands
-    else:
-        two_operand_count = num_examples
-        three_operand_count = 0
-
-    # Generate 2-operand examples
-    for _ in range(two_operand_count):
-        a = random.randint(0, max_value)
-        b = random.randint(0, max_value)
-        result = a + b
+    for _ in range(num_examples):
+        operands = [
+            random.randint(0, max_value) for _ in range(random.randint(2, max_operands))
+        ]
+        result = sum(operands)
 
         # Generate chain-of-thought reasoning
-        reasoning = generate_chain_of_thought(a, b)
+        reasoning = generate_chain_of_thought(operands)
 
         # Apply fixed-length padding if enabled
-        reasoning = pad_cot_to_fixed_length(reasoning, [a, b], fixed_length_cot)
+        if fixed_length_cot:
+            max_digits = calculate_max_operand_digits(operands)
+            reasoning_length = len(tokenizer.encode(reasoning))
+            pad_length = cot_length - reasoning_length
+            if pad_length < 0:
+                # Error out if our 4x assumption is wrong
+                raise ValueError(
+                    f"Generated CoT is longer than fixed-length CoT: {reasoning_length} > {cot_length}: {'+'.join(map(str, operands))}={reasoning}"
+                )
+            elif pad_length > 0:
+                reasoning += "<noop>" * pad_length
 
-        if reasoning:
-            example = f"{a}+{b}={reasoning}{result}<end>"
-        else:
-            example = f"{a}+{b}={result}<end>"
-
+        example = f"{'+'.join(map(str, operands))}={reasoning}{result}<end>"
         examples.append(example)
 
-    # Generate 3-operand examples
-    for _ in range(three_operand_count):
-        a = random.randint(0, max_value)
-        b = random.randint(0, max_value)
-        c = random.randint(0, max_value)
-        result = a + b + c
-
-        # Generate recursive chain-of-thought reasoning
-        reasoning = generate_recursive_chain_of_thought([a, b, c])
-
-        # Apply fixed-length padding if enabled
-        reasoning = pad_cot_to_fixed_length(reasoning, [a, b, c], fixed_length_cot)
-
-        if reasoning:
-            example = f"{a}+{b}+{c}={reasoning}{result}<end>"
-        else:
-            example = f"{a}+{b}+{c}={result}<end>"
-
-        examples.append(example)
-
-    # Shuffle to randomize order
-    random.shuffle(examples)
     return examples
 
 
