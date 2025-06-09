@@ -11,13 +11,15 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from .tokenizer import VOCAB_SIZE
+from .tokenizer import VOCAB, VOCAB_SIZE
 
 MAX_SEQUENCE_LENGTH = 1024
 
 
-def create_cot_mask(tokens: torch.Tensor) -> torch.Tensor:
-    """Create mask for CoT content (True = keep, False = ignore in loss).
+def create_completion_mask(tokens: torch.Tensor) -> torch.Tensor:
+    """Create mask for completion-only training (True = keep, False = ignore in loss).
+
+    Only computes loss on tokens after the '=' sign.
 
     Args:
         tokens: Token tensor of shape (batch_size, seq_len)
@@ -25,110 +27,73 @@ def create_cot_mask(tokens: torch.Tensor) -> torch.Tensor:
     Returns:
         Boolean mask of same shape where True means keep for loss computation
     """
-    from .tokenizer import ArithmeticTokenizer
+    equals_token = VOCAB["="]
+    batch_size, seq_len = tokens.shape
 
-    tokenizer = ArithmeticTokenizer()
+    # Find equals positions for all sequences at once
+    equals_mask = tokens == equals_token
 
-    # Token IDs for CoT tags
-    think_digit_open = tokenizer.vocab["<think_digit>"]
-    think_digit_close = tokenizer.vocab["</think_digit>"]
-    think_multi_open = tokenizer.vocab["<think_multi>"]
-    think_multi_close = tokenizer.vocab["</think_multi>"]
+    # Create position indices
+    positions = (
+        torch.arange(seq_len, device=tokens.device).unsqueeze(0).expand(batch_size, -1)
+    )
 
-    batch_size, _ = tokens.shape
-    mask = torch.ones_like(tokens, dtype=torch.bool)
+    # Find first equals position for each sequence
+    # Use a large value where no equals found
+    equals_positions = torch.where(equals_mask, positions, seq_len)
+    first_equals_pos = equals_positions.min(dim=1)[0]  # (batch_size,)
 
-    for b in range(batch_size):
-        # Find all tag positions for this batch
-        sequence = tokens[b]
+    # Create mask for positions after equals
+    after_equals_mask = positions > first_equals_pos.unsqueeze(1)
 
-        # Process digit CoT blocks
-        digit_opens = (sequence == think_digit_open).nonzero(as_tuple=False).squeeze(-1)
-        digit_closes = (
-            (sequence == think_digit_close).nonzero(as_tuple=False).squeeze(-1)
-        )
-        _mask_cot_blocks(mask, b, digit_opens, digit_closes)
+    # Exclude padding tokens (-100) and sequences with no equals
+    not_padding_mask = tokens != -100
+    has_equals_mask = (first_equals_pos < seq_len).unsqueeze(1)
 
-        # Process multi CoT blocks
-        multi_opens = (sequence == think_multi_open).nonzero(as_tuple=False).squeeze(-1)
-        multi_closes = (
-            (sequence == think_multi_close).nonzero(as_tuple=False).squeeze(-1)
-        )
-        _mask_cot_blocks(mask, b, multi_opens, multi_closes)
+    # Combine all conditions
+    mask = after_equals_mask & not_padding_mask & has_equals_mask
 
     return mask
 
 
-def _mask_cot_blocks(
-    mask: torch.Tensor, batch_idx: int, opens: torch.Tensor, closes: torch.Tensor
-) -> None:
-    """Mask content between matched opening and closing tags.
+def compute_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """Compute completion-only loss (only on tokens after = sign).
 
-    Args:
-        mask: Mask tensor to update
-        batch_idx: Batch index
-        opens: Positions of opening tags
-        closes: Positions of closing tags
-    """
-    for open_pos in opens:
-        open_pos = open_pos.item()
-
-        # Find the first closing tag after this opening tag
-        close_idx = torch.searchsorted(closes, open_pos + 1)
-
-        if close_idx < len(closes):
-            close_pos = closes[close_idx].item()
-            # Mask content between tags (excluding the tags themselves)
-            mask[batch_idx, open_pos + 1 : close_pos] = False
-
-
-def compute_loss(
-    logits: torch.Tensor, labels: torch.Tensor, cot_agnostic: bool = False
-) -> torch.Tensor:
-    """Compute loss with optional CoT content masking.
     Args:
         logits: Model predictions of shape (batch_size, seq_len, vocab_size)
         labels: Target labels of shape (batch_size, seq_len)
-        cot_agnostic: If True, mask CoT content in loss computation
+
     Returns:
         Computed loss tensor
     """
-    # Handle sequence length differences
-    _, logits_seq_len, _ = logits.shape  # Fixed syntax
-    labels_seq_len = labels.shape[1]
-    min_seq_len = min(logits_seq_len, labels_seq_len)
-
     # Shift for next-token prediction
-    shift_logits = logits[:, : min_seq_len - 1, :].contiguous()
-    shift_labels = labels[:, 1:min_seq_len].contiguous()
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
 
-    if cot_agnostic:
-        # The mask should correspond to shift_labels, not original labels
-        shifted_labels_for_mask = labels[:, 1:min_seq_len]
-        shift_mask = create_cot_mask(shifted_labels_for_mask).contiguous()
+    # Handle sequence length differences after shifting
+    min_len = min(shift_logits.shape[1], shift_labels.shape[1])
+    shift_logits = shift_logits[:, :min_len, :]
+    shift_labels = shift_labels[:, :min_len]
 
-        # Flatten tensors
-        shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
-        shift_labels_flat = shift_labels.view(-1)
-        shift_mask_flat = shift_mask.view(-1)
+    # Completion-only loss computation - only compute loss after = sign
+    completion_mask = create_completion_mask(shift_labels)
 
-        # Apply mask - only compute loss on non-masked tokens
-        if shift_mask_flat.any():
-            masked_logits = shift_logits_flat[shift_mask_flat]
-            masked_labels = shift_labels_flat[shift_mask_flat]
-            loss_fct = nn.CrossEntropyLoss()
-            return loss_fct(masked_logits, masked_labels)
-        else:
-            # Return zero tensor with proper device and gradient tracking
-            return torch.tensor(
-                0.0, device=logits.device, dtype=logits.dtype, requires_grad=True
-            )
-    else:
-        # Standard loss computation
+    # Flatten tensors
+    shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
+    shift_labels_flat = shift_labels.view(-1)
+    completion_mask_flat = completion_mask.view(-1)
+
+    # Apply mask - only compute loss on tokens after =
+    if completion_mask_flat.any():
+        masked_logits = shift_logits_flat[completion_mask_flat]
+        masked_labels = shift_labels_flat[completion_mask_flat]
         loss_fct = nn.CrossEntropyLoss()
-        shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
-        shift_labels_flat = shift_labels.view(-1)
-        return loss_fct(shift_logits_flat, shift_labels_flat)
+        return loss_fct(masked_logits, masked_labels)
+    else:
+        # Return zero tensor if no completion tokens found
+        return torch.tensor(
+            0.0, device=logits.device, dtype=logits.dtype, requires_grad=True
+        )
 
 
 class PositionalEncoding(nn.Module):
@@ -296,7 +261,6 @@ class ArithmeticModel(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
-        cot_agnostic: bool = False,
         **_kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
@@ -305,7 +269,6 @@ class ArithmeticModel(nn.Module):
             input_ids: Input token IDs of shape (batch_size, seq_len)
             attention_mask: Optional attention mask (unused)
             labels: Optional labels for computing loss
-            cot_agnostic: Whether to use CoT-agnostic loss computation
 
         Returns:
             If labels provided: dict with 'loss' and 'logits'
@@ -335,7 +298,7 @@ class ArithmeticModel(nn.Module):
 
         # Compute loss if labels are provided
         if labels is not None:
-            loss = compute_loss(logits, labels, cot_agnostic=cot_agnostic)
+            loss = compute_loss(logits, labels)
             return {"loss": loss, "logits": logits}
 
         return logits

@@ -12,7 +12,7 @@ This tokenizer handles a vocabulary of 19 tokens:
 from typing import Any, Union
 
 # Vocabulary mapping for arithmetic expressions with reasoning
-V = {
+VOCAB = {
     "0": 0,
     "1": 1,
     "2": 2,
@@ -35,13 +35,13 @@ V = {
 }
 
 # Constants derived from vocabulary
-VOCAB_SIZE = len(V)
+VOCAB_SIZE = len(VOCAB)
 
 
 class ArithmeticTokenizer:
     """Character-level tokenizer for arithmetic expressions."""
 
-    vocab = V
+    vocab = VOCAB
 
     def __init__(self):
         """Initialize the tokenizer with arithmetic vocabulary."""
