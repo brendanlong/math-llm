@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from torch.utils.data import SequentialSampler
 
 from src.data import ArithmeticDataset, create_dataloader, load_splits
 from src.tokenizer import ArithmeticTokenizer
@@ -200,8 +201,6 @@ class TestDataLoader:
         assert dataloader.batch_size == 2
         # Note: shuffle=False creates a SequentialSampler which doesn't have shuffle attribute
         # We can verify non-shuffling by checking sampler type instead
-        from torch.utils.data import SequentialSampler
-
         assert isinstance(dataloader.sampler, SequentialSampler)
 
         # Test that we can iterate through it

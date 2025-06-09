@@ -202,8 +202,6 @@ class TestModelFactories:
 
     def test_all_models_same_vocab_size(self):
         """Test that all model factories use correct vocab size."""
-        from src.tokenizer import VOCAB_SIZE
-
         models = [create_small_model(), create_medium_model(), create_large_model()]
 
         for model in models:

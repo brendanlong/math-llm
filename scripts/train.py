@@ -29,6 +29,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.data import load_splits
 from src.model import (
     ArithmeticModel,
+    create_completion_mask,
     create_large_model,
     create_medium_model,
     create_small_model,
@@ -93,8 +94,6 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     Returns:
         Dictionary of computed metrics
     """
-    from src.model import create_completion_mask
-
     predictions, labels = eval_pred
 
     # Get predicted tokens (argmax)

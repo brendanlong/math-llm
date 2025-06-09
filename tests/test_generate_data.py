@@ -1,5 +1,7 @@
 """Tests for data generation utilities."""
 
+import random
+
 from src.generation import (
     generate_addition_examples,
     generate_chain_of_thought,
@@ -340,8 +342,6 @@ class TestDataSplitting:
         examples = [f"example_{i}" for i in range(30)]
 
         # Reset random state before each split
-        import random
-
         random.seed(42)
         train1, val1, test1 = split_data(examples)
 

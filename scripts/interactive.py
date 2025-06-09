@@ -15,6 +15,7 @@ from typing import List, Literal, Optional
 
 import colorlog
 import torch
+from safetensors.torch import load_file
 
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
@@ -71,8 +72,6 @@ def load_model(checkpoint_path: Path, model_size: str) -> ArithmeticModel:
 
     # Load checkpoint - handle different formats
     if checkpoint_path.suffix == ".safetensors":
-        from safetensors.torch import load_file
-
         state_dict = load_file(str(checkpoint_path))
         model.load_state_dict(state_dict)
     else:
