@@ -51,7 +51,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         Returns:
             Dictionary with 'input_ids' and 'labels' tensors
         """
-        expression = self.data[idx]["text"]
+        expression = self.data[idx]
 
         # Split at equals sign for completion-style training
         if "=" in expression:

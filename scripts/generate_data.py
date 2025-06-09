@@ -20,7 +20,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.generation import generate_addition_examples, split_data
-from src.tokenizer import ArithmeticTokenizer
 from src.types import DatasetDict
 
 
@@ -34,26 +33,7 @@ def save_dataset(examples: list[str], output_path: Path, split_name: str) -> Non
     """
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Create dataset with both raw text and tokenized versions
-    tokenizer = ArithmeticTokenizer()
-    dataset: DatasetDict = {
-        "examples": [],
-        "metadata": {
-            "split": split_name,
-            "num_examples": len(examples),
-            "vocab_size": tokenizer.vocab_size,
-            "format": "operand1+operand2=<think_digit>...</think_digit>result<end> or operand1+operand2+operand3=<think_multi>...</think_multi>result<end>",
-        },
-    }
-
-    for text in examples:
-        try:
-            tokens = tokenizer.encode(text)
-            dataset["examples"].append(
-                {"text": text, "tokens": tokens, "length": len(tokens)}
-            )
-        except ValueError as e:
-            print(f"Warning: Skipping invalid example '{text}': {e}")
+    dataset: DatasetDict = {"examples": examples}
 
     # Save to JSON file
     output_file = output_path / f"{split_name}.json"

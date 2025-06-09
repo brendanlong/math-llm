@@ -19,33 +19,24 @@ def tokenizer() -> ArithmeticTokenizer:
 
 
 @pytest.fixture
-def sample_data() -> list[dict[str, str]]:
+def sample_data() -> list[str]:
     """Create sample arithmetic expressions for testing."""
     return [
-        {"expression": "3+5=8<end>"},
-        {"expression": "1+2=3<end>"},
-        {"expression": "7+1=8<end>"},
-        {"expression": "4+6=10<end>"},
-        {"expression": "9+0=9<end>"},
-        {
-            "expression": "12+34=<think_digit>\n2+4=6\n6\n1+3=4\n4\n</think_digit>46<end>"
-        },
+        "3+5=8<end>",
+        "1+2=3<end>",
+        "7+1=8<end>",
+        "4+6=10<end>",
+        "9+0=9<end>",
+        "12+34=<think_digit>\n2+4=6\n6\n1+3=4\n4\n</think_digit>46<end>",
     ]
 
 
 @pytest.fixture
-def temp_data_file(sample_data: list[dict[str, str]]) -> Path:
+def temp_data_file(sample_data: list[str]) -> Path:
     """Create a temporary JSON file with sample data in new format."""
     tokenizer = ArithmeticTokenizer()
     dataset = {
-        "examples": [
-            {
-                "text": item["expression"],
-                "tokens": tokenizer.encode(item["expression"]),
-                "length": len(tokenizer.encode(item["expression"])),
-            }
-            for item in sample_data
-        ],
+        "examples": sample_data,
         "metadata": {
             "split": "test",
             "num_examples": len(sample_data),
@@ -155,19 +146,7 @@ class TestArithmeticDataset:
         long_expression = "1+2=3<end>" * 10  # Much longer than 32 tokens
 
         dataset = {
-            "examples": [
-                {
-                    "text": long_expression,
-                    "tokens": tokenizer.encode(long_expression),
-                    "length": len(tokenizer.encode(long_expression)),
-                }
-            ],
-            "metadata": {
-                "split": "test",
-                "num_examples": 1,
-                "vocab_size": tokenizer.vocab_size,
-                "format": "operand1+operand2=<think_digit>...</think_digit>result<end>",
-            },
+            "examples": [long_expression],
         }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -220,22 +199,7 @@ class TestDataLoader:
 
             # Create split files in new format
             for split in ["train", "val", "test"]:
-                dataset = {
-                    "examples": [
-                        {
-                            "text": item["expression"],
-                            "tokens": tokenizer.encode(item["expression"]),
-                            "length": len(tokenizer.encode(item["expression"])),
-                        }
-                        for item in sample_data
-                    ],
-                    "metadata": {
-                        "split": split,
-                        "num_examples": len(sample_data),
-                        "vocab_size": tokenizer.vocab_size,
-                        "format": "operand1+operand2=<think_digit>...</think_digit>result<end>",
-                    },
-                }
+                dataset = {"examples": sample_data}
                 with open(temp_path / f"{split}.json", "w") as f:
                     json.dump(dataset, f)
 
