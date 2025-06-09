@@ -40,12 +40,13 @@ def generate_two_operand_chain_of_though(a: int, b: int) -> str:
 
         # Show the addition step with recursive thinking when there's a carry (3 numbers)
         if carry > 0:
+            reasoning.append(f"\n{digit_a}+{digit_b}+{carry}=")
             # Use recursive thinking for three-number addition
             recursive_reasoning = generate_chain_of_thought([digit_a, digit_b, carry])
             reasoning.append(recursive_reasoning)
             reasoning.append(str(sum_digits))
         else:
-            reasoning.append(f"{sum_digits}")
+            reasoning.append(f"\n{digit_a}+{digit_b}={sum_digits}")
 
         # Update carry for next iteration
         carry = sum_digits // 10 if sum_digits >= 10 else 0
@@ -75,6 +76,9 @@ def generate_chain_of_thought(operands: list[int]) -> str:
 
     for i in range(1, len(operands)):
         next_operand = operands[i]
+
+        # Show the addition step
+        reasoning.append(f"\n{current_sum}+{next_operand}=")
 
         # Get the reasoning for this step (with nested thinking tags if multi-digit)
         step_reasoning = generate_two_operand_chain_of_though(current_sum, next_operand)

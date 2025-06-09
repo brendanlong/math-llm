@@ -3,25 +3,84 @@
   ''
 # ---
 # name: test_chain_of_thought_snapshots.1
-  '<think_digit>64</think_digit>'
+  '''
+  <think_digit>
+  2+4=6
+  1+3=4</think_digit>
+  '''
 # ---
 # name: test_chain_of_thought_snapshots.2
-  '<think_digit>15<think_multi>34</think_multi>4</think_digit>'
+  '''
+  <think_digit>
+  8+7=15
+  2+1+1=<think_multi>
+  2+1=3
+  3+1=4</think_multi>4</think_digit>
+  '''
 # ---
 # name: test_chain_of_thought_snapshots.3
-  '<think_digit>17<think_multi>13<think_digit>41</think_digit>14</think_multi>14<think_multi>78</think_multi>8</think_digit>'
+  '''
+  <think_digit>
+  8+9=17
+  5+8+1=<think_multi>
+  5+8=13
+  13+1=<think_digit>
+  3+1=4
+  1+0=1</think_digit>14</think_multi>14
+  6+1+1=<think_multi>
+  6+1=7
+  7+1=8</think_multi>8</think_digit>
+  '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots
-  '<think_digit>15<think_multi>34</think_multi>4</think_digit>'
+  '''
+  <think_digit>
+  8+7=15
+  2+1+1=<think_multi>
+  2+1=3
+  3+1=4</think_multi>4</think_digit>
+  '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots.1
-  '<think_multi>810</think_multi>'
+  '''
+  <think_multi>
+  3+5=8
+  8+2=10</think_multi>
+  '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots.2
-  '<think_multi><think_digit>15<think_multi>34</think_multi>4</think_digit>45<think_digit>913</think_digit>139</think_multi>'
+  '''
+  <think_multi>
+  28+17=<think_digit>
+  8+7=15
+  2+1+1=<think_multi>
+  2+1=3
+  3+1=4</think_multi>4</think_digit>45
+  45+94=<think_digit>
+  5+4=9
+  4+9=13</think_digit>139</think_multi>
+  '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots.3
-  '<think_multi><think_digit>17<think_multi>13<think_digit>41</think_digit>14</think_multi>14<think_multi>78</think_multi>8</think_digit>847<think_digit>11<think_multi>78</think_multi>810</think_digit>1081</think_multi>'
+  '''
+  <think_multi>
+  658+189=<think_digit>
+  8+9=17
+  5+8+1=<think_multi>
+  5+8=13
+  13+1=<think_digit>
+  3+1=4
+  1+0=1</think_digit>14</think_multi>14
+  6+1+1=<think_multi>
+  6+1=7
+  7+1=8</think_multi>8</think_digit>847
+  847+234=<think_digit>
+  7+4=11
+  4+3+1=<think_multi>
+  4+3=7
+  7+1=8</think_multi>8
+  8+2=10</think_digit>1081</think_multi>
+  '''
 # ---
 # name: test_recursive_chain_of_thought_snapshots.4
   '<think_multi><think_digit>17<think_multi>13<think_digit>41</think_digit>14</think_multi>14<think_multi>78</think_multi>8</think_digit>847<think_digit>11<think_multi>78</think_multi>810</think_digit>1081<think_digit>10<think_multi>17<think_digit>81</think_digit>18</think_multi>18<think_multi>01</think_multi>11</think_digit>1180</think_multi>'
