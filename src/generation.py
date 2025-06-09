@@ -5,7 +5,7 @@ import random
 from .tokenizer import ArithmeticTokenizer
 
 
-def generate_two_operand_chain_of_though(a: int, b: int) -> str:
+def generate_two_operand_chain_of_thought(a: int, b: int) -> str:
     """Generate chain-of-thought reasoning for addition.
 
     Args:
@@ -66,7 +66,7 @@ def generate_chain_of_thought(operands: list[int]) -> str:
     """
     if len(operands) < 3:
         # For 2 operands, use original chain-of-thought
-        return generate_two_operand_chain_of_though(operands[0], operands[1])
+        return generate_two_operand_chain_of_thought(operands[0], operands[1])
 
     # For 3+ operands, show recursive left-to-right addition
     reasoning = ["<think_multi>"]
@@ -81,7 +81,9 @@ def generate_chain_of_thought(operands: list[int]) -> str:
         reasoning.append(f"\n{current_sum}+{next_operand}=")
 
         # Get the reasoning for this step (with nested thinking tags if multi-digit)
-        step_reasoning = generate_two_operand_chain_of_though(current_sum, next_operand)
+        step_reasoning = generate_two_operand_chain_of_thought(
+            current_sum, next_operand
+        )
         if step_reasoning:
             # Keep the nested thinking tags for recursive reasoning
             reasoning.append(step_reasoning)
@@ -126,7 +128,7 @@ def generate_addition_examples(
     examples = []
     max_value = 10**max_digits - 1
     tokenizer = ArithmeticTokenizer()
-    cot_length = 10 * max_digits * max_operands
+    cot_length = 20 * max_digits * max_operands
 
     for _ in range(num_examples):
         operands = [

@@ -3,7 +3,7 @@
 from src.generation import (
     generate_addition_examples,
     generate_chain_of_thought,
-    generate_recursive_chain_of_thought,
+    generate_two_operand_chain_of_thought,
     split_data,
 )
 from src.tokenizer import ArithmeticTokenizer
@@ -14,22 +14,22 @@ class TestChainOfThought:
 
     def test_single_digit_no_reasoning(self):
         """Test that single-digit addition doesn't generate reasoning."""
-        reasoning = generate_chain_of_thought(3, 5)
+        reasoning = generate_two_operand_chain_of_thought(3, 5)
         assert reasoning == ""
 
-        reasoning = generate_chain_of_thought(9, 9)
+        reasoning = generate_two_operand_chain_of_thought(9, 9)
         assert reasoning == ""
 
     def test_multi_digit_has_reasoning(self):
         """Test that multi-digit addition generates reasoning."""
-        reasoning = generate_chain_of_thought(12, 34)
+        reasoning = generate_two_operand_chain_of_thought(12, 34)
         assert reasoning != ""
         assert "<think_digit>" in reasoning
         assert "</think_digit>" in reasoning
 
     def test_reasoning_format(self):
         """Test the format of generated reasoning."""
-        reasoning = generate_chain_of_thought(25, 17)
+        reasoning = generate_two_operand_chain_of_thought(25, 17)
 
         # Should include recursive thinking for carries
         assert reasoning.startswith("<think_digit>")
@@ -41,13 +41,13 @@ class TestChainOfThought:
 
     def test_carry_reasoning(self):
         """Test reasoning with carry operations."""
-        reasoning = generate_chain_of_thought(8, 9)
+        reasoning = generate_two_operand_chain_of_thought(8, 9)
 
         # 8+9 should be single digit, no reasoning
         assert reasoning == ""
 
         # Multi-digit with carry should have recursive thinking
-        reasoning = generate_chain_of_thought(18, 9)
+        reasoning = generate_two_operand_chain_of_thought(18, 9)
         assert reasoning.startswith("<think_digit>")
         assert reasoning.endswith("</think_digit>")
         assert "8+9=17" in reasoning
@@ -55,7 +55,7 @@ class TestChainOfThought:
 
     def test_complex_carry(self):
         """Test complex multi-digit carry operations."""
-        reasoning = generate_chain_of_thought(658, 189)
+        reasoning = generate_two_operand_chain_of_thought(658, 189)
 
         # Should have nested thinking for carries
         assert reasoning.startswith("<think_digit>")
@@ -68,7 +68,7 @@ class TestChainOfThought:
 
     def test_large_numbers(self):
         """Test reasoning with larger numbers."""
-        reasoning = generate_chain_of_thought(999, 999)
+        reasoning = generate_two_operand_chain_of_thought(999, 999)
 
         # Should have nested thinking for all the carries
         assert reasoning.startswith("<think_digit>")
@@ -277,13 +277,13 @@ class TestRecursiveChainOfThought:
 
     def test_two_operand_fallback(self):
         """Test that 2-operand input uses regular chain-of-thought."""
-        result = generate_recursive_chain_of_thought([25, 17])
-        expected = generate_chain_of_thought(25, 17)
+        result = generate_chain_of_thought([25, 17])
+        expected = generate_two_operand_chain_of_thought(25, 17)
         assert result == expected
 
     def test_three_operand_structure(self):
         """Test structure of 3-operand recursive reasoning."""
-        result = generate_recursive_chain_of_thought([3, 5, 2])
+        result = generate_chain_of_thought([3, 5, 2])
 
         assert result.startswith("<think_multi>")
         assert result.endswith("</think_multi>")
@@ -293,7 +293,7 @@ class TestRecursiveChainOfThought:
 
     def test_nested_thinking_in_recursive(self):
         """Test that complex recursive operations have nested thinking."""
-        result = generate_recursive_chain_of_thought([28, 17, 94])
+        result = generate_chain_of_thought([28, 17, 94])
 
         # Should have nested thinking tags for multi-digit additions
         assert result.count("<think_multi>") >= 1
