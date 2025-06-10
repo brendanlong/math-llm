@@ -5,7 +5,7 @@ learning basic arithmetic operations like addition.
 """
 
 import math
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import torch
 import torch.nn as nn
@@ -308,6 +308,17 @@ class ArithmeticModel(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
+def create_extra_small_model() -> ArithmeticModel:
+    """Create an extra-small model configuration."""
+    return ArithmeticModel(
+        d_model=32,
+        n_layers=4,
+        n_heads=4,
+        d_ff=128,
+        dropout=0.1,
+    )
+
+
 def create_small_model() -> ArithmeticModel:
     """Create a small model configuration (~1M parameters)."""
     return ArithmeticModel(
@@ -339,3 +350,21 @@ def create_large_model() -> ArithmeticModel:
         d_ff=2048,
         dropout=0.1,
     )
+
+
+ModelSizeStr = Literal["xsmall", "small", "medium", "large"]
+
+
+def create_model(
+    model_size: ModelSizeStr,
+) -> ArithmeticModel:
+    if model_size == "xsmall":
+        return create_extra_small_model()
+    elif model_size == "small":
+        return create_small_model()
+    elif model_size == "medium":
+        return create_medium_model()
+    elif model_size == "large":
+        return create_large_model()
+    else:
+        raise ValueError(f"Unknown model size: {model_size}")

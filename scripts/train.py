@@ -28,10 +28,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.data import load_splits
 from src.model import (
-    ArithmeticModel,
-    create_large_model,
-    create_medium_model,
-    create_small_model,
+    create_model,
 )
 from src.tokenizer import VOCAB, ArithmeticTokenizer
 
@@ -151,25 +148,6 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     }
 
 
-def create_model(model_size: str) -> ArithmeticModel:
-    """Create model based on size specification.
-
-    Args:
-        model_size: Model size ("small", "medium", or "large")
-
-    Returns:
-        Initialized model
-    """
-    if model_size == "small":
-        return create_small_model()
-    elif model_size == "medium":
-        return create_medium_model()
-    elif model_size == "large":
-        return create_large_model()
-    else:
-        raise ValueError(f"Unknown model size: {model_size}")
-
-
 def main() -> None:
     """Main training function."""
     parser = argparse.ArgumentParser(description="Train arithmetic transformer model")
@@ -179,7 +157,7 @@ def main() -> None:
         "--model-size",
         type=str,
         default="small",
-        choices=["small", "medium", "large"],
+        choices=["xsmall", "small", "medium", "large"],
         help="Model size configuration",
     )
 

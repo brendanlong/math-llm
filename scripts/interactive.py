@@ -23,9 +23,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.model import (
     ArithmeticModel,
-    create_large_model,
-    create_medium_model,
-    create_small_model,
+    ModelSizeStr,
+    create_model,
 )
 from src.tokenizer import ArithmeticTokenizer
 
@@ -96,7 +95,7 @@ def setup_logging() -> None:
     logger.addHandler(console_handler)
 
 
-def load_model(checkpoint_path: Path, model_size: str) -> ArithmeticModel:
+def load_model(checkpoint_path: Path, model_size: ModelSizeStr) -> ArithmeticModel:
     """Load model from checkpoint.
 
     Args:
@@ -106,15 +105,7 @@ def load_model(checkpoint_path: Path, model_size: str) -> ArithmeticModel:
     Returns:
         Loaded model
     """
-    # Create model architecture
-    if model_size == "small":
-        model = create_small_model()
-    elif model_size == "medium":
-        model = create_medium_model()
-    elif model_size == "large":
-        model = create_large_model()
-    else:
-        raise ValueError(f"Unknown model size: {model_size}")
+    model = create_model(model_size)
 
     # Load checkpoint - handle different formats
     if checkpoint_path.suffix == ".safetensors":
@@ -565,7 +556,7 @@ def main() -> None:
         "--model-size",
         type=str,
         default="small",
-        choices=["small", "medium", "large"],
+        choices=["xsmall", "small", "medium", "large"],
         help="Model size configuration",
     )
 
