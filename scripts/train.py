@@ -27,9 +27,7 @@ import wandb
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.data import load_splits
-from src.model import (
-    create_model,
-)
+from src.model import create_model
 from src.tokenizer import VOCAB, ArithmeticTokenizer
 
 
@@ -146,6 +144,14 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     return {
         "token_accuracy": completion_accuracy,
     }
+
+
+# Custom data collator since we're not using HuggingFace tokenizer
+def data_collator(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+    """Simple data collator for our custom tokenizer."""
+    input_ids = torch.stack([item["input_ids"] for item in batch])
+    labels = torch.stack([item["labels"] for item in batch])
+    return {"input_ids": input_ids, "labels": labels}
 
 
 def main() -> None:
@@ -327,13 +333,6 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision("high")
         logger.info("Enabled TensorFloat32 for faster matrix multiplication")
-
-    # Custom data collator since we're not using HuggingFace tokenizer
-    def data_collator(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
-        """Simple data collator for our custom tokenizer."""
-        input_ids = torch.stack([item["input_ids"] for item in batch])
-        labels = torch.stack([item["labels"] for item in batch])
-        return {"input_ids": input_ids, "labels": labels}
 
     # Training arguments
     training_args = TrainingArguments(
