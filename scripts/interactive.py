@@ -11,10 +11,11 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Tuple
 
 import colorlog
 import torch
+import torch.nn.functional as F
 from safetensors.torch import load_file
 
 # Add parent directory to path to import src modules
@@ -189,6 +190,53 @@ def parse_thinking_tags(text: str) -> List[ThinkingNode]:
     return nodes
 
 
+def get_top_k_predictions(
+    model: ArithmeticModel,
+    input_ids: torch.Tensor,
+    tokenizer: ArithmeticTokenizer,
+    k: int = 5,
+    temperature: float = 0.1,
+) -> List[Tuple[str, float, int]]:
+    """Get top-k predictions for next token with probabilities.
+
+    Args:
+        model: The model to use for predictions
+        input_ids: Current sequence of token IDs
+        tokenizer: Tokenizer instance
+        k: Number of top predictions to return
+        temperature: Temperature for softmax
+
+    Returns:
+        List of (token_string, probability, token_id) tuples
+    """
+    model.eval()
+
+    with torch.no_grad():
+        # Get logits for the sequence
+        outputs = model.forward(input_ids)
+        if isinstance(outputs, dict):
+            logits = outputs["logits"]
+        else:
+            logits = outputs
+
+        # Get logits for last position
+        logits = logits[:, -1, :] / temperature
+
+        # Get probabilities
+        probs = F.softmax(logits, dim=-1)
+
+        # Get top-k
+        top_probs, top_indices = torch.topk(probs[0], min(k, probs.size(-1)))
+
+        # Convert to list of (token, probability, token_id) tuples
+        predictions = []
+        for prob, idx in zip(top_probs.tolist(), top_indices.tolist()):
+            token_str = tokenizer.id_to_token.get(idx, f"<UNK:{idx}>")
+            predictions.append((token_str, prob, idx))
+
+    return predictions
+
+
 def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
     """Display thinking tree structure with proper indentation.
 
@@ -221,6 +269,126 @@ def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
                 for line in lines:
                     if line.strip():
                         print(f"{indent_str}  {line.strip()}")
+
+
+def interactive_session_with_probabilities(
+    model: ArithmeticModel,
+    tokenizer: ArithmeticTokenizer,
+    device: torch.device,
+    max_new_tokens: int = 512,
+    temperature: float = 0.01,
+) -> None:
+    """Run interactive inference session with probability display and manual input.
+
+    Args:
+        model: Loaded model
+        tokenizer: Tokenizer instance
+        device: Device to run on
+        max_new_tokens: Maximum tokens to generate
+        temperature: Sampling temperature
+    """
+    model.eval()
+
+    print("\n🧮 Math LLM Interactive Inference (Probability Mode)")
+    print("=" * 50)
+    print("This mode shows top-5 next token predictions with probabilities.")
+    print("You can:")
+    print("  - Press ENTER to accept the top prediction")
+    print("  - Type your own token(s) to continue (e.g., '<think_digit>')")
+    print("  - Type 'done' to finish the current expression")
+    print("  - Type 'quit' or 'exit' to stop")
+    print("=" * 50)
+
+    while True:
+        try:
+            # Get initial input
+            user_input = input("\n➤ Enter initial expression: ").strip()
+
+            # Check for exit commands
+            if user_input.lower() in ["quit", "exit", "q"]:
+                print("\nGoodbye! 👋")
+                break
+
+            # Skip empty input
+            if not user_input:
+                continue
+
+            # Start with user input
+            current_text = user_input
+            token_count = 0
+
+            # Interactive generation loop
+            while token_count < max_new_tokens:
+                # Encode current sequence
+                try:
+                    input_ids = tokenizer.encode(current_text)
+                    input_tensor = torch.tensor(
+                        input_ids, dtype=torch.long, device=device
+                    ).unsqueeze(0)
+                except ValueError as e:
+                    print(f"⚠️  Error encoding input: {e}")
+                    break
+
+                # Get top-k predictions
+                predictions = get_top_k_predictions(
+                    model, input_tensor, tokenizer, k=5, temperature=temperature
+                )
+
+                # Display current state
+                print(f"\n📝 Current: {current_text}")
+                print("\n🎯 Top 5 predictions:")
+                for i, (token, prob, token_id) in enumerate(predictions):
+                    # Format token display
+                    display_token = token
+                    if token == "\n":
+                        display_token = "\\n"
+                    print(f"  {i + 1}. '{display_token}' ({prob:.2%}) [id={token_id}]")
+
+                # Get user choice
+                choice = input(
+                    "\n➜ Press ENTER for top choice, or type token(s): "
+                ).strip()
+
+                if choice.lower() == "done":
+                    print(f"\n✅ Final: {current_text}")
+                    break
+                elif choice.lower() in ["quit", "exit", "q"]:
+                    print("\nGoodbye! 👋")
+                    return
+                elif choice == "":
+                    # Accept top prediction
+                    top_token = predictions[0][0]
+                    current_text += top_token
+                    token_count += 1
+                    print(f"   → Added: '{top_token}'")
+
+                    # Check if we hit end token
+                    if predictions[0][2] == tokenizer.end_token_id:
+                        print(f"\n✅ Complete: {current_text}")
+                        break
+                else:
+                    # User provided custom token(s)
+                    try:
+                        # Validate that we can encode the new text
+                        tokenizer.encode(current_text + choice)
+                        current_text += choice
+                        # Count how many tokens were added
+                        new_ids = tokenizer.encode(choice)
+                        token_count += len(new_ids)
+                        print(f"   → Added: '{choice}' ({len(new_ids)} tokens)")
+                    except ValueError as e:
+                        print(f"⚠️  Error: Invalid token sequence - {e}")
+                        continue
+
+            if token_count >= max_new_tokens:
+                print(f"\n⚠️  Hit token limit ({max_new_tokens} tokens)")
+                print(f"✅ Final: {current_text}")
+
+        except (EOFError, KeyboardInterrupt):
+            print("\n\nGoodbye! 👋")
+            break
+        except Exception as e:
+            print(f"⚠️  Unexpected error: {e}")
 
 
 def interactive_session(
@@ -385,6 +553,15 @@ def main() -> None:
         help="Device to use (cuda, cpu, or auto)",
     )
 
+    # Mode selection
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="normal",
+        choices=["normal", "probability"],
+        help="Interactive mode: 'normal' for standard generation, 'probability' for step-by-step with probabilities",
+    )
+
     args = parser.parse_args()
 
     # Setup logging
@@ -418,14 +595,23 @@ def main() -> None:
         logging.error(f"Failed to load model: {e}")
         sys.exit(1)
 
-    # Start interactive session
-    interactive_session(
-        model=model,
-        tokenizer=tokenizer,
-        device=device,
-        max_new_tokens=args.max_new_tokens,
-        temperature=args.temperature,
-    )
+    # Start interactive session based on mode
+    if args.mode == "probability":
+        interactive_session_with_probabilities(
+            model=model,
+            tokenizer=tokenizer,
+            device=device,
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+        )
+    else:
+        interactive_session(
+            model=model,
+            tokenizer=tokenizer,
+            device=device,
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+        )
 
 
 if __name__ == "__main__":
