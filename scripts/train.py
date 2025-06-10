@@ -29,7 +29,6 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.data import load_splits
 from src.model import (
     ArithmeticModel,
-    create_completion_mask,
     create_large_model,
     create_medium_model,
     create_small_model,
@@ -111,30 +110,12 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     # Use the shifted predictions and original labels
     predictions = predictions_shifted
 
-    # Apply completion mask to labels as normal
-    completion_mask = create_completion_mask(labels)
-
     # Flatten and apply masks
     predictions_flat = predictions.reshape(-1)
     labels_flat = labels.reshape(-1)
-    completion_mask_flat = completion_mask.reshape(-1)
 
-    # Additional padding mask (though completion mask should handle this)
-    padding_mask = labels_flat != -100
-
-    # Combine masks: completion tokens that aren't padding
-    combined_mask = completion_mask_flat & padding_mask
-
-    if combined_mask.any():
-        masked_predictions = predictions_flat[combined_mask]
-        masked_labels = labels_flat[combined_mask]
-
-        # Compute accuracy only on completion tokens (answer portion)
-        completion_accuracy = torch.mean(
-            (masked_predictions == masked_labels).float()
-        ).item()
-    else:
-        completion_accuracy = 0.0
+    # Compute accuracy only on completion tokens (answer portion)
+    completion_accuracy = torch.mean((predictions_flat == labels_flat).float()).item()
 
     return {
         "token_accuracy": completion_accuracy,

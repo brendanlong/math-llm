@@ -11,49 +11,9 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from .tokenizer import VOCAB, VOCAB_SIZE
+from .tokenizer import VOCAB_SIZE
 
 MAX_SEQUENCE_LENGTH = 1024
-
-
-def create_completion_mask(tokens: torch.Tensor) -> torch.Tensor:
-    """Create mask for completion-only training (True = keep, False = ignore in loss).
-
-    Only computes loss on tokens after the '=' sign.
-
-    Args:
-        tokens: Token tensor of shape (batch_size, seq_len)
-
-    Returns:
-        Boolean mask of same shape where True means keep for loss computation
-    """
-    equals_token = VOCAB["="]
-    batch_size, seq_len = tokens.shape
-
-    # Find equals positions for all sequences at once
-    equals_mask = tokens == equals_token
-
-    # Create position indices
-    positions = (
-        torch.arange(seq_len, device=tokens.device).unsqueeze(0).expand(batch_size, -1)
-    )
-
-    # Find first equals position for each sequence
-    # Use a large value where no equals found
-    equals_positions = torch.where(equals_mask, positions, seq_len)
-    first_equals_pos = equals_positions.min(dim=1)[0]  # (batch_size,)
-
-    # Create mask for positions after equals
-    after_equals_mask = positions > first_equals_pos.unsqueeze(1)
-
-    # Exclude padding tokens (-100) and sequences with no equals
-    not_padding_mask = tokens != -100
-    has_equals_mask = (first_equals_pos < seq_len).unsqueeze(1)
-
-    # Combine all conditions
-    mask = after_equals_mask & not_padding_mask & has_equals_mask
-
-    return mask
 
 
 def compute_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -75,25 +35,12 @@ def compute_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     shift_logits = shift_logits[:, :min_len, :]
     shift_labels = shift_labels[:, :min_len]
 
-    # Completion-only loss computation - only compute loss after = sign
-    completion_mask = create_completion_mask(shift_labels)
-
     # Flatten tensors
     shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
     shift_labels_flat = shift_labels.view(-1)
-    completion_mask_flat = completion_mask.view(-1)
 
-    # Apply mask - only compute loss on tokens after =
-    if completion_mask_flat.any():
-        masked_logits = shift_logits_flat[completion_mask_flat]
-        masked_labels = shift_labels_flat[completion_mask_flat]
-        loss_fct = nn.CrossEntropyLoss()
-        return loss_fct(masked_logits, masked_labels)
-    else:
-        # Return zero tensor if no completion tokens found
-        return torch.tensor(
-            0.0, device=logits.device, dtype=logits.dtype, requires_grad=True
-        )
+    loss_fct = nn.CrossEntropyLoss()
+    return loss_fct(shift_logits_flat, shift_labels_flat)
 
 
 class PositionalEncoding(nn.Module):
