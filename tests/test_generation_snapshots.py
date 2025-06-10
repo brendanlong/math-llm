@@ -2,14 +2,12 @@
 
 from typing import Any
 
-from src.generation import (
-    generate_chain_of_thought,
-)
+from src.generation import generate_chain_of_thought
 
 
 def test_chain_of_thought_snapshots(snapshot: Any) -> None:
     """Test chain-of-thought generation with snapshots."""
-    # Single digit (should be empty)
+    # Single digit
     assert generate_chain_of_thought([3, 5]) == snapshot
 
     # Two digit without carry
@@ -24,7 +22,7 @@ def test_chain_of_thought_snapshots(snapshot: Any) -> None:
 
 def test_recursive_chain_of_thought_snapshots(snapshot: Any) -> None:
     """Test recursive chain-of-thought generation with snapshots."""
-    # Two operands (should use regular chain-of-thought)
+    # Two operands
     assert generate_chain_of_thought([28, 17]) == snapshot
 
     # Three operands simple

@@ -5,54 +5,17 @@ import random
 from .tokenizer import ArithmeticTokenizer
 
 
-def generate_two_operand_chain_of_thought(a: int, b: int) -> str:
-    """Generate chain-of-thought reasoning for addition.
+def reverse_operand(operand: int) -> str:
+    """Reverse the digits of an operand.
 
     Args:
-        a: First operand
-        b: Second operand
+        operand: Operand to reverse
 
     Returns:
-        Chain-of-thought reasoning string with multi-digit thinking tokens
+        Reversed operand (as a string)
     """
-    str_a = str(a)
-    str_b = str(b)
-
-    # For single-digit addition, no reasoning needed
-    if len(str_a) == 1 and len(str_b) == 1:
-        return ""
-
-    # Pad numbers to same length for column addition
-    max_len = max(len(str_a), len(str_b))
-    str_a = str_a.zfill(max_len)
-    str_b = str_b.zfill(max_len)
-
-    reasoning = ["<think_digit>"]
-    carry = 0
-
-    # Work from right to left
-    for i in range(max_len - 1, -1, -1):
-        digit_a = int(str_a[i])
-        digit_b = int(str_b[i])
-
-        # Add digits plus any carry
-        sum_digits = digit_a + digit_b + carry
-
-        # Show the addition step with recursive thinking when there's a carry (3 numbers)
-        if carry > 0:
-            reasoning.append(f"\n{digit_a}+{digit_b}+{carry}=")
-            # Use recursive thinking for three-number addition
-            recursive_reasoning = generate_chain_of_thought([digit_a, digit_b, carry])
-            reasoning.append(recursive_reasoning)
-            reasoning.append(str(sum_digits))
-        else:
-            reasoning.append(f"\n{digit_a}+{digit_b}={sum_digits}")
-
-        # Update carry for next iteration
-        carry = sum_digits // 10 if sum_digits >= 10 else 0
-
-    reasoning.append("</think_digit>")
-    return "".join(reasoning)
+    str_operand = str(operand)
+    return str_operand[::-1]
 
 
 def generate_chain_of_thought(operands: list[int]) -> str:
@@ -64,33 +27,24 @@ def generate_chain_of_thought(operands: list[int]) -> str:
     Returns:
         Chain-of-thought reasoning string showing recursive addition with nested thinking tags
     """
-    if len(operands) < 3:
-        # For 2 operands, use original chain-of-thought
-        return generate_two_operand_chain_of_thought(operands[0], operands[1])
-
-    # For 3+ operands, show recursive left-to-right addition
+    # Show recursive left-to-right addition
     reasoning = ["<think_multi>"]
 
-    # Start with first operand
-    current_sum = operands[0]
-
-    for i in range(1, len(operands)):
-        next_operand = operands[i]
-
+    # Add each group of two operands recursively
+    remaining_operands = operands.copy()
+    while len(remaining_operands) > 1:
         # Show the addition step
-        reasoning.append(f"\n{current_sum}+{next_operand}=")
+        # Reverse the operands to make this easier for a left-to-right LLM
+        reasoning.append("+".join(map(reverse_operand, remaining_operands)))
+        reasoning.append("=")
 
-        # Get the reasoning for this step (with nested thinking tags if multi-digit)
-        step_reasoning = generate_two_operand_chain_of_thought(
-            current_sum, next_operand
-        )
-        if step_reasoning:
-            # Keep the nested thinking tags for recursive reasoning
-            reasoning.append(step_reasoning)
+        # Pop the first two operands
+        operand_a = remaining_operands.pop(0)
+        operand_b = remaining_operands.pop(0)
 
-        # Calculate and show the result
-        current_sum = current_sum + next_operand
-        reasoning.append(str(current_sum))
+        result = operand_a + operand_b
+        remaining_operands.insert(0, result)
+    reasoning.append(reverse_operand(remaining_operands[0]))
 
     reasoning.append("</think_multi>")
     return "".join(reasoning)
