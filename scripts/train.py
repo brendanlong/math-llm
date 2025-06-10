@@ -33,7 +33,7 @@ from src.model import (
     create_medium_model,
     create_small_model,
 )
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import VOCAB, ArithmeticTokenizer
 
 
 def setup_logging() -> None:
@@ -102,20 +102,44 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     predictions = torch.from_numpy(predictions)
     labels = torch.from_numpy(labels)
 
-    # Simple fix: shift predictions by 1 to align with labels
-    # Based on debug output, predictions are off by 1 position
-    predictions_shifted = torch.zeros_like(predictions)
-    predictions_shifted[:, 1:] = predictions[:, :-1]  # Shift predictions right by 1
+    # Shift labels left by 1 to align with predictions
+    # Model predicts next token, so labels should be shifted left
+    labels_shifted = torch.full_like(labels, -100)  # Initialize with ignore index
+    labels_shifted[:, :-1] = labels[:, 1:]  # Shift labels left by 1
 
-    # Use the shifted predictions and original labels
-    predictions = predictions_shifted
+    # Use original predictions and shifted labels
+    labels = labels_shifted
 
-    # Flatten and apply masks
+    # Flatten and generate basic mask
     predictions_flat = predictions.reshape(-1)
     labels_flat = labels.reshape(-1)
     mask = labels_flat != -100
-    predictions_masked = predictions_flat[mask]
-    labels_masked = labels_flat[mask]
+
+    # Mask everything after first <end> token (token_id=12)
+    end_token_id = VOCAB["<end>"]
+    batch_size, seq_len = labels.shape
+
+    # Find first <end> token in each sequence
+    end_mask = labels == end_token_id
+    # Get indices of first <end> per sequence (or seq_len if no <end>)
+    first_end_indices = torch.where(
+        end_mask.any(dim=1),
+        end_mask.int().argmax(dim=1),
+        torch.tensor(seq_len, device=labels.device),
+    )
+
+    # Create sequence position indices
+    positions = torch.arange(seq_len, device=labels.device).expand(batch_size, seq_len)
+
+    # Mask positions after first <end> token
+    after_end_mask = positions > first_end_indices.unsqueeze(1)
+
+    # Flatten the after_end_mask and combine with valid_mask
+    after_end_mask_flat = after_end_mask.reshape(-1)
+    valid_mask = mask & ~after_end_mask_flat
+
+    predictions_masked = predictions_flat[valid_mask]
+    labels_masked = labels_flat[valid_mask]
 
     # Compute accuracy only on completion tokens (answer portion)
     completion_accuracy = torch.mean(
