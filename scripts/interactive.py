@@ -30,6 +30,51 @@ from src.model import (
 from src.tokenizer import ArithmeticTokenizer
 
 
+def greedy_generate(
+    model: ArithmeticModel,
+    input_ids: torch.Tensor,
+    max_new_tokens: int = 20,
+    end_token_id: int = 12,
+) -> torch.Tensor:
+    """Generate tokens using greedy decoding (argmax).
+
+    Args:
+        model: The model to use for generation
+        input_ids: Initial input tokens of shape (batch_size, seq_len)
+        max_new_tokens: Maximum number of new tokens to generate
+        end_token_id: Token ID for end-of-sequence
+
+    Returns:
+        Generated tokens of shape (batch_size, seq_len + num_generated)
+    """
+    model.eval()
+
+    for _ in range(max_new_tokens):
+        # Get predictions for current sequence
+        with torch.no_grad():
+            outputs = model.forward(input_ids)
+            # Extract logits (forward returns dict when labels provided, tensor otherwise)
+            if isinstance(outputs, dict):
+                logits = outputs["logits"]
+            else:
+                logits = outputs
+
+            # Get logits for last token
+            logits = logits[:, -1, :]
+
+            # Use argmax for greedy decoding
+            next_token = torch.argmax(logits, dim=-1, keepdim=True)
+
+            # Append to sequence
+            input_ids = torch.cat([input_ids, next_token], dim=1)
+
+            # Stop if we hit the end token
+            if next_token.item() == end_token_id:
+                break
+
+    return input_ids
+
+
 def setup_logging() -> None:
     """Setup colored logging configuration."""
     console_handler = colorlog.StreamHandler()
@@ -195,7 +240,6 @@ def get_top_k_predictions(
     input_ids: torch.Tensor,
     tokenizer: ArithmeticTokenizer,
     k: int = 5,
-    temperature: float = 0.1,
 ) -> List[Tuple[str, float, int]]:
     """Get top-k predictions for next token with probabilities.
 
@@ -204,7 +248,6 @@ def get_top_k_predictions(
         input_ids: Current sequence of token IDs
         tokenizer: Tokenizer instance
         k: Number of top predictions to return
-        temperature: Temperature for softmax
 
     Returns:
         List of (token_string, probability, token_id) tuples
@@ -219,8 +262,8 @@ def get_top_k_predictions(
         else:
             logits = outputs
 
-        # Get logits for last position
-        logits = logits[:, -1, :] / temperature
+        # Get logits for last position - always use temperature=1.0 for probability display
+        logits = logits[:, -1, :]
 
         # Get probabilities
         probs = F.softmax(logits, dim=-1)
@@ -276,7 +319,6 @@ def interactive_session_with_probabilities(
     tokenizer: ArithmeticTokenizer,
     device: torch.device,
     max_new_tokens: int = 512,
-    temperature: float = 0.01,
 ) -> None:
     """Run interactive inference session with probability display and manual input.
 
@@ -285,7 +327,6 @@ def interactive_session_with_probabilities(
         tokenizer: Tokenizer instance
         device: Device to run on
         max_new_tokens: Maximum tokens to generate
-        temperature: Sampling temperature
     """
     model.eval()
 
@@ -329,10 +370,8 @@ def interactive_session_with_probabilities(
                     print(f"⚠️  Error encoding input: {e}")
                     break
 
-                # Get top-k predictions
-                predictions = get_top_k_predictions(
-                    model, input_tensor, tokenizer, k=5, temperature=temperature
-                )
+                # Get top-k predictions with temperature=1.0 for probability display
+                predictions = get_top_k_predictions(model, input_tensor, tokenizer, k=5)
 
                 # Display current state
                 print(f"\n📝 Current: {current_text}")
@@ -396,7 +435,6 @@ def interactive_session(
     tokenizer: ArithmeticTokenizer,
     device: torch.device,
     max_new_tokens: int = 512,
-    temperature: float = 0.01,
 ) -> None:
     """Run interactive inference session with chain-of-thought display.
 
@@ -405,7 +443,6 @@ def interactive_session(
         tokenizer: Tokenizer instance
         device: Device to run on
         max_new_tokens: Maximum tokens to generate (default: 512)
-        temperature: Sampling temperature
     """
     model.eval()
 
@@ -454,10 +491,11 @@ def interactive_session(
 
             with torch.no_grad():
                 initial_length = input_tensor.size(1)
-                generated_ids = model.generate(
+                # Use greedy decoding (argmax) instead of sampling
+                generated_ids = greedy_generate(
+                    model,
                     input_tensor,
                     max_new_tokens=max_new_tokens,
-                    temperature=temperature,
                     end_token_id=tokenizer.end_token_id,
                 )
 
@@ -538,12 +576,6 @@ def main() -> None:
         default=512,
         help="Maximum number of new tokens to generate",
     )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=0.1,
-        help="Sampling temperature (lower = more deterministic)",
-    )
 
     # System arguments
     parser.add_argument(
@@ -602,7 +634,6 @@ def main() -> None:
             tokenizer=tokenizer,
             device=device,
             max_new_tokens=args.max_new_tokens,
-            temperature=args.temperature,
         )
     else:
         interactive_session(
@@ -610,7 +641,6 @@ def main() -> None:
             tokenizer=tokenizer,
             device=device,
             max_new_tokens=args.max_new_tokens,
-            temperature=args.temperature,
         )
 
 
