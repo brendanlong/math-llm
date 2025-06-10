@@ -113,9 +113,14 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     # Flatten and apply masks
     predictions_flat = predictions.reshape(-1)
     labels_flat = labels.reshape(-1)
+    mask = labels_flat != -100
+    predictions_masked = predictions_flat[mask]
+    labels_masked = labels_flat[mask]
 
     # Compute accuracy only on completion tokens (answer portion)
-    completion_accuracy = torch.mean((predictions_flat == labels_flat).float()).item()
+    completion_accuracy = torch.mean(
+        (predictions_masked == labels_masked).float()
+    ).item()
 
     return {
         "token_accuracy": completion_accuracy,
