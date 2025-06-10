@@ -29,6 +29,62 @@ from src.model import (
 from src.tokenizer import ArithmeticTokenizer
 
 
+def greedy_generate_with_probs(
+    model: ArithmeticModel,
+    input_ids: torch.Tensor,
+    max_new_tokens: int = 20,
+    end_token_id: int = 12,
+) -> Tuple[torch.Tensor, List[float]]:
+    """Generate tokens using greedy decoding (argmax) and return probabilities.
+
+    Args:
+        model: The model to use for generation
+        input_ids: Initial input tokens of shape (batch_size, seq_len)
+        max_new_tokens: Maximum number of new tokens to generate
+        end_token_id: Token ID for end-of-sequence
+
+    Returns:
+        Tuple of:
+            - Generated tokens of shape (batch_size, seq_len + num_generated)
+            - List of probabilities for each generated token
+    """
+    model.eval()
+    probabilities = []
+
+    for _ in range(max_new_tokens):
+        # Get predictions for current sequence
+        with torch.no_grad():
+            outputs = model.forward(input_ids)
+            # Extract logits (forward returns dict when labels provided, tensor otherwise)
+            if isinstance(outputs, dict):
+                logits = outputs["logits"]
+            else:
+                logits = outputs
+
+            # Get logits for last token
+            logits = logits[:, -1, :]
+
+            # Get probabilities
+            probs = F.softmax(logits, dim=-1)
+
+            # Use argmax for greedy decoding
+            next_token = torch.argmax(logits, dim=-1, keepdim=True)
+
+            # Store the probability of the selected token
+            selected_token_idx = int(next_token[0].item())
+            token_prob = probs[0, selected_token_idx].item()
+            probabilities.append(token_prob)
+
+            # Append to sequence
+            input_ids = torch.cat([input_ids, next_token], dim=1)
+
+            # Stop if we hit the end token
+            if next_token.item() == end_token_id:
+                break
+
+    return input_ids, probabilities
+
+
 def greedy_generate(
     model: ArithmeticModel,
     input_ids: torch.Tensor,
@@ -46,32 +102,43 @@ def greedy_generate(
     Returns:
         Generated tokens of shape (batch_size, seq_len + num_generated)
     """
-    model.eval()
+    generated_ids, _ = greedy_generate_with_probs(
+        model, input_ids, max_new_tokens, end_token_id
+    )
+    return generated_ids
 
-    for _ in range(max_new_tokens):
-        # Get predictions for current sequence
-        with torch.no_grad():
-            outputs = model.forward(input_ids)
-            # Extract logits (forward returns dict when labels provided, tensor otherwise)
-            if isinstance(outputs, dict):
-                logits = outputs["logits"]
-            else:
-                logits = outputs
 
-            # Get logits for last token
-            logits = logits[:, -1, :]
+def get_probability_background(prob: float) -> str:
+    """Get ANSI background color based on probability.
 
-            # Use argmax for greedy decoding
-            next_token = torch.argmax(logits, dim=-1, keepdim=True)
+    Args:
+        prob: Probability value between 0 and 1
 
-            # Append to sequence
-            input_ids = torch.cat([input_ids, next_token], dim=1)
-
-            # Stop if we hit the end token
-            if next_token.item() == end_token_id:
-                break
-
-    return input_ids
+    Returns:
+        ANSI escape code for background color
+    """
+    if prob >= 1.0:
+        return "\033[48;5;16m"  # Black (100%)
+    elif prob >= 0.9:
+        return "\033[48;5;234m"  # Very dark grey (90%+)
+    elif prob >= 0.8:
+        return "\033[48;5;236m"  # Dark grey (80%+)
+    elif prob >= 0.7:
+        return "\033[48;5;238m"  # Medium-dark grey (70%+)
+    elif prob >= 0.6:
+        return "\033[48;5;240m"  # Medium grey (60%+)
+    elif prob >= 0.5:
+        return "\033[48;5;242m"  # Lighter grey (50%+)
+    elif prob >= 0.4:
+        return "\033[48;5;244m"  # Light grey (40%+)
+    elif prob >= 0.3:
+        return "\033[48;5;246m"  # Very light grey (30%+)
+    elif prob >= 0.2:
+        return "\033[48;5;248m"  # Almost white grey (20%+)
+    elif prob >= 0.1:
+        return "\033[48;5;250m"  # Near white (10%+)
+    else:
+        return "\033[48;5;252m"  # Very near white (<10%)
 
 
 def setup_logging() -> None:
@@ -444,6 +511,8 @@ def interactive_session(
     print("  '3+5=' → model completes with '8<end>'")
     print("  '12+34=' → model shows reasoning and completes with '46<end>'")
     print("  '7+' → model completes with operand and result")
+    print("\nToken backgrounds show model confidence:")
+    print("  Black = 100% | Dark grey = 90%+ | Light grey = <50%")
     print("\nType 'quit' or 'exit' to stop.")
     print("=" * 40)
 
@@ -482,8 +551,8 @@ def interactive_session(
 
             with torch.no_grad():
                 initial_length = input_tensor.size(1)
-                # Use greedy decoding (argmax) instead of sampling
-                generated_ids = greedy_generate(
+                # Use greedy decoding (argmax) with probabilities
+                generated_ids, probabilities = greedy_generate_with_probs(
                     model,
                     input_tensor,
                     max_new_tokens=max_new_tokens,
@@ -506,7 +575,29 @@ def interactive_session(
             # Decode result
             try:
                 generated_text = tokenizer.decode(generated_ids[0].cpu().tolist())
-                print(f"✨ Model output: {generated_text}")
+
+                # Build output with colored backgrounds for generated tokens
+                print("✨ Model output: ", end="")
+
+                # Print input without background
+                print(user_input, end="")
+
+                # Get the generated tokens (after the input)
+                generated_token_ids = generated_ids[0, initial_length:].cpu().tolist()
+
+                # Print each generated token with background based on probability
+                for token_id, prob in zip(generated_token_ids, probabilities):
+                    token_str = tokenizer.id_to_token.get(token_id, f"<UNK:{token_id}>")
+                    bg_color = get_probability_background(prob)
+                    reset_color = "\033[0m"
+
+                    # Handle special display for newline
+                    if token_str == "\n":
+                        print(f"{bg_color}\\n{reset_color}", end="")
+                    else:
+                        print(f"{bg_color}{token_str}{reset_color}", end="")
+
+                print()  # New line after output
 
                 # Parse reasoning from completion
                 thinking_nodes = parse_thinking_tags(generated_text)
