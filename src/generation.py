@@ -126,14 +126,29 @@ def generate_addition_examples(
 
     random.seed(seed)
     examples = []
-    max_value = 10**max_digits - 1
     tokenizer = ArithmeticTokenizer()
     cot_length = 20 * max_digits * max_operands
 
     for _ in range(num_examples):
-        operands = [
-            random.randint(0, max_value) for _ in range(random.randint(2, max_operands))
-        ]
+        # First select number of operands
+        num_operands = random.randint(2, max_operands)
+
+        # Generate operands with uniform distribution of digit counts
+        operands = []
+        for _ in range(num_operands):
+            # Select number of digits uniformly from 1 to max_digits
+            num_digits = random.randint(1, max_digits)
+
+            if num_digits == 1:
+                # For 1 digit: 0-9
+                operand = random.randint(0, 9)
+            else:
+                # For n digits: 10^(n-1) to 10^n - 1
+                min_value = 10 ** (num_digits - 1)
+                max_value = 10**num_digits - 1
+                operand = random.randint(min_value, max_value)
+
+            operands.append(operand)
         result = sum(operands)
 
         # Generate chain-of-thought reasoning
