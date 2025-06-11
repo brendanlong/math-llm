@@ -332,7 +332,7 @@ def get_top_k_predictions(
         # Convert to list of (token, probability, token_id) tuples
         predictions = []
         for prob, idx in zip(top_probs.tolist(), top_indices.tolist()):
-            token_str = tokenizer.vocab.get(idx, f"<UNK:{idx}>")
+            token_str = tokenizer.decode([idx])
             predictions.append((token_str, prob, idx))
 
     return predictions
@@ -587,7 +587,7 @@ def interactive_session(
 
                 # Print each generated token with background based on probability
                 for token_id, prob in zip(generated_token_ids, probabilities):
-                    token_str = tokenizer.vocab.get(token_id, f"<UNK:{token_id}>")
+                    token_str = tokenizer.decode([token_id])
                     bg_color = get_probability_background(prob)
                     reset_color = "\033[0m"
 

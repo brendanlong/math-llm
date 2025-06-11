@@ -33,6 +33,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         self.data_path = Path(data_path)
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.end_token_id = tokenizer.vocab["<end>"]
 
         # Load data
         with open(self.data_path, "r") as f:
@@ -75,11 +76,14 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
             full_tokens = full_tokens[: self.max_length]
             # Adjust prompt length if needed
             if len(prompt_tokens) >= self.max_length:
-                prompt_tokens = prompt_tokens[: self.max_length - 1]
+                prompt_length = self.max_length - 1
+            else:
+                prompt_length = len(prompt_tokens)
         else:
             # Pad with end token
             pad_length = self.max_length - len(full_tokens)
-            full_tokens = full_tokens + [self.tokenizer.vocab["<end>"]] * pad_length
+            full_tokens = full_tokens + [self.end_token_id] * pad_length
+            prompt_length = len(prompt_tokens)
 
         # Convert to tensor
         input_ids = torch.tensor(full_tokens, dtype=torch.long)
@@ -90,15 +94,13 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         labels = input_ids.clone()
 
         # Mask the prompt tokens in labels (don't compute loss on them)
-        prompt_length = len(prompt_tokens)
-        for i in range(prompt_length):
-            labels[i] = -100
+        if prompt_length > 0:
+            labels[:prompt_length] = -100
 
         # Mask padding tokens in labels
         original_length = len(prompt_tokens) + len(completion_tokens)
         if original_length < self.max_length:
-            for i in range(original_length, self.max_length):
-                labels[i] = -100
+            labels[original_length:] = -100
 
         return {"input_ids": input_ids, "labels": labels}
 
