@@ -12,13 +12,13 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import Any, Sized, cast
+from typing import Sized, cast
 
 import colorlog
 import numpy as np
 import torch
 from transformers.trainer import Trainer
-from transformers.trainer_utils import set_seed
+from transformers.trainer_utils import EvalPrediction, set_seed
 from transformers.training_args import TrainingArguments
 
 import wandb
@@ -79,7 +79,7 @@ def set_random_seeds(seed: int = 42) -> None:
     set_seed(seed)
 
 
-def compute_metrics(eval_pred: Any) -> dict[str, float]:
+def compute_metrics(eval_pred: EvalPrediction) -> dict[str, float]:
     """Compute completion-only evaluation metrics to match training objective.
 
     Args:
@@ -93,14 +93,11 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     # Get predicted tokens (argmax)
     predictions = np.argmax(predictions, axis=-1)
 
-    # Convert to tensors
-    predictions = torch.from_numpy(predictions)
-    labels = torch.from_numpy(labels)
-
     # Shift labels left by 1 to align with predictions
     # Model predicts next token, so labels should be shifted left
-    labels_shifted = torch.full_like(labels, -100)  # Initialize with ignore index
-    labels_shifted[:, :-1] = labels[:, 1:]  # Shift labels left by 1
+    labels_shifted = np.full_like(labels, -100)  # Initialize with ignore index
+    # Shift labels left by 1
+    labels_shifted[:, :-1] = labels[:, 1:]  # type:ignore
 
     # Use original predictions and shifted labels
     labels = labels_shifted
@@ -114,20 +111,19 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     end_token_id = VOCAB["<end>"]
     batch_size, seq_len = labels.shape
 
-    # Find first <end> token in each sequence
+    # Find first <end> token in each sequence using numpy
     end_mask = labels == end_token_id
+
     # Get indices of first <end> per sequence (or seq_len if no <end>)
-    first_end_indices = torch.where(
-        end_mask.any(dim=1),
-        end_mask.int().argmax(dim=1),
-        torch.tensor(seq_len, device=labels.device),
-    )
+    # Use argmax to find first True value in each row
+    # If no <end> token exists, argmax returns 0, so we need to check
+    first_end_indices = np.where(end_mask.any(axis=1), end_mask.argmax(axis=1), seq_len)
 
     # Create sequence position indices
-    positions = torch.arange(seq_len, device=labels.device).expand(batch_size, seq_len)
+    positions = np.arange(seq_len)[None, :].repeat(batch_size, axis=0)
 
     # Mask positions after first <end> token
-    after_end_mask = positions > first_end_indices.unsqueeze(1)
+    after_end_mask = positions > first_end_indices[:, None]
 
     # Flatten the after_end_mask and combine with valid_mask
     after_end_mask_flat = after_end_mask.reshape(-1)
@@ -137,12 +133,13 @@ def compute_metrics(eval_pred: Any) -> dict[str, float]:
     labels_masked = labels_flat[valid_mask]
 
     # Compute accuracy only on completion tokens (answer portion)
-    completion_accuracy = torch.mean(
-        (predictions_masked == labels_masked).float()
-    ).item()
+    if len(predictions_masked) > 0:
+        completion_accuracy = np.mean(predictions_masked == labels_masked)
+    else:
+        completion_accuracy = 0.0
 
     return {
-        "token_accuracy": completion_accuracy,
+        "token_accuracy": float(completion_accuracy),
     }
 
 
