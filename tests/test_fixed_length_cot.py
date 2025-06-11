@@ -53,10 +53,6 @@ def test_noop_token_in_vocabulary():
     decoded = tokenizer.decode(tokens)
     assert decoded == text
 
-    # Test tokenize method
-    string_tokens = tokenizer.tokenize(text)
-    assert "<noop>" in string_tokens
-
 
 def test_fixed_length_preserves_correctness():
     """Test that fixed-length padding doesn't break arithmetic correctness."""

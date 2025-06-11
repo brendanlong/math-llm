@@ -9,7 +9,16 @@ This tokenizer handles a vocabulary of 19 tokens:
 - Formatting: \n (newline)
 """
 
-from typing import Any, Union
+import tempfile
+
+from tokenizers import (
+    Regex,
+    Tokenizer,
+    decoders,
+    models,
+    pre_tokenizers,
+)
+from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
 # Vocabulary mapping for arithmetic expressions with reasoning
 VOCAB = {
@@ -34,8 +43,30 @@ VOCAB = {
     "<noop>": 18,
 }
 
+TOKEN_PATTERN = (
+    r"</think_multi>|</think_digit>|<think_multi>|<think_digit>|<noop>|<end>|\n|[0-9+=]"
+)
+
 # Constants derived from vocabulary
 VOCAB_SIZE = len(VOCAB)
+
+tokenizer = Tokenizer(models.WordLevel(vocab=VOCAB, unk_token=None))
+tokenizer.pre_tokenizer = pre_tokenizers.Split(
+    pattern=Regex(TOKEN_PATTERN), behavior="isolated"
+)  # type: ignore
+tokenizer.decoder = decoders.Fuse()  # type: ignore
+
+end_token_id = VOCAB["<end>"]
+with tempfile.NamedTemporaryFile() as f:
+    tokenizer.save(f.name)
+
+    fast_tokenizer = PreTrainedTokenizerFast(
+        tokenizer_file=f.name,
+        unk_token=None,
+        pad_token="<end>",
+        eos_token="<end>",
+        clean_up_tokenization_spaces=False,
+    )
 
 
 class ArithmeticTokenizer:
@@ -45,11 +76,9 @@ class ArithmeticTokenizer:
 
     def __init__(self):
         """Initialize the tokenizer with arithmetic vocabulary."""
-        # Create reverse mapping for decoding
-        self.id_to_token = {v: k for k, v in self.vocab.items()}
+        self.tokenizer = fast_tokenizer
 
-        # Special token IDs
-        self.end_token_id = self.vocab["<end>"]
+        self.end_token_id = VOCAB["<end>"]
 
     @property
     def vocab_size(self) -> int:
@@ -66,37 +95,9 @@ class ArithmeticTokenizer:
             List of token IDs
 
         Raises:
-            ValueError: If text contains unknown characters
+            Exception: If text contains unknown characters
         """
-        tokens = []
-        i = 0
-        while i < len(text):
-            # Check for multi-character special tokens first
-            if text[i : i + 14] == "</think_multi>":
-                tokens.append(self.vocab["</think_multi>"])
-                i += 14
-            elif text[i : i + 13] == "<think_multi>":
-                tokens.append(self.vocab["<think_multi>"])
-                i += 13
-            elif text[i : i + 14] == "</think_digit>":
-                tokens.append(self.vocab["</think_digit>"])
-                i += 14
-            elif text[i : i + 13] == "<think_digit>":
-                tokens.append(self.vocab["<think_digit>"])
-                i += 13
-            elif text[i : i + 6] == "<noop>":
-                tokens.append(self.vocab["<noop>"])
-                i += 6
-            elif text[i : i + 5] == "<end>":
-                tokens.append(self.vocab["<end>"])
-                i += 5
-            elif text[i] in self.vocab:
-                tokens.append(self.vocab[text[i]])
-                i += 1
-            else:
-                raise ValueError(f"Unknown character: '{text[i]}'")
-
-        return tokens
+        return self.tokenizer.encode(text)
 
     def decode(self, token_ids: list[int]) -> str:
         """Decode token ID(s) to text.
@@ -106,70 +107,5 @@ class ArithmeticTokenizer:
 
         Returns:
             Decoded text string
-
-        Raises:
-            ValueError: If token ID is out of vocabulary range
         """
-        tokens = []
-        for token_id in token_ids:
-            if token_id not in self.id_to_token:
-                raise ValueError(f"Unknown token ID: {token_id}")
-            tokens.append(self.id_to_token[token_id])
-
-        return "".join(tokens)
-
-    def tokenize(self, text: str) -> list[str]:
-        """Tokenize text into string tokens.
-
-        Args:
-            text: Input text
-
-        Returns:
-            List of string tokens
-        """
-        tokens = []
-        i = 0
-        while i < len(text):
-            # Check for multi-character special tokens first
-            if text[i : i + 14] == "</think_multi>":
-                tokens.append("</think_multi>")
-                i += 14
-            elif text[i : i + 13] == "<think_multi>":
-                tokens.append("<think_multi>")
-                i += 13
-            elif text[i : i + 14] == "</think_digit>":
-                tokens.append("</think_digit>")
-                i += 14
-            elif text[i : i + 13] == "<think_digit>":
-                tokens.append("<think_digit>")
-                i += 13
-            elif text[i : i + 6] == "<noop>":
-                tokens.append("<noop>")
-                i += 6
-            elif text[i : i + 5] == "<end>":
-                tokens.append("<end>")
-                i += 5
-            elif text[i] in self.vocab:
-                tokens.append(text[i])
-                i += 1
-            else:
-                raise ValueError(f"Unknown character: '{text[i]}'")
-
-        return tokens
-
-    def __call__(
-        self, text: Union[str, list[str]], **_kwargs: Any
-    ) -> Union[list[int], list[list[int]]]:
-        """Make tokenizer callable for compatibility with HuggingFace.
-
-        Args:
-            text: Input text or list of texts
-            **_kwargs: Additional arguments (ignored for compatibility)
-
-        Returns:
-            Token IDs or batch of token IDs
-        """
-        if isinstance(text, str):
-            return self.encode(text)
-        else:
-            return [self.encode(t) for t in text]
+        return self.tokenizer.decode(token_ids)

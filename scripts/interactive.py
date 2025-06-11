@@ -332,7 +332,7 @@ def get_top_k_predictions(
         # Convert to list of (token, probability, token_id) tuples
         predictions = []
         for prob, idx in zip(top_probs.tolist(), top_indices.tolist()):
-            token_str = tokenizer.id_to_token.get(idx, f"<UNK:{idx}>")
+            token_str = tokenizer.vocab.get(idx, f"<UNK:{idx}>")
             predictions.append((token_str, prob, idx))
 
     return predictions
@@ -587,7 +587,7 @@ def interactive_session(
 
                 # Print each generated token with background based on probability
                 for token_id, prob in zip(generated_token_ids, probabilities):
-                    token_str = tokenizer.id_to_token.get(token_id, f"<UNK:{token_id}>")
+                    token_str = tokenizer.vocab.get(token_id, f"<UNK:{token_id}>")
                     bg_color = get_probability_background(prob)
                     reset_color = "\033[0m"
 
@@ -614,11 +614,6 @@ def interactive_session(
                 print(
                     f"✅ Answer: {''.join(n.content for n in thinking_nodes if n.tag_type == 'text').removesuffix('<end>')}"
                 )
-
-                # Show token breakdown if helpful (only for very short sequences)
-                if len(generated_ids[0]) <= 10:  # Only for very short sequences
-                    tokens = tokenizer.tokenize(generated_text)
-                    print(f"🔍 Tokens: {' | '.join(tokens)}")
 
             except Exception as e:
                 print(f"⚠️  Error decoding output: {e}")
