@@ -349,6 +349,7 @@ def main() -> None:
         # Evaluation and logging
         eval_strategy="steps",
         eval_steps=args.eval_steps,
+        eval_accumulation_steps=32,
         logging_steps=args.logging_steps,
         save_steps=args.save_steps,
         save_total_limit=3,  # Keep only 3 most recent checkpoints
