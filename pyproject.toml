@@ -20,6 +20,8 @@ dev = [
     "pytest>=8.3.5",
     "ruff>=0.11.11",
     "syrupy>=4.9.1",
+    "tensorboard>=2.19.0",
+    "tensorboard-plugin-profile>=2.20.0",
 ]
 
 [tool.ruff.lint]

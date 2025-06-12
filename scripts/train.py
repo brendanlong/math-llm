@@ -17,6 +17,7 @@ from typing import Sized, cast
 import colorlog
 import numpy as np
 import torch
+from torch.profiler import ProfilerActivity, profile, schedule
 from transformers.trainer import Trainer
 from transformers.trainer_utils import EvalPrediction, set_seed
 from transformers.training_args import TrainingArguments
@@ -268,6 +269,11 @@ def main() -> None:
         action="store_true",
         help="Resume training from existing checkpoint in output directory",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Run one epoch with torch.profiler and save results",
+    )
 
     args = parser.parse_args()
 
@@ -388,6 +394,72 @@ def main() -> None:
         json.dump(config, f, indent=2)
 
     logger.info(f"Saved training configuration to {config_path}")
+
+    # Profile training if requested
+    if args.profile:
+        logger.info("Running profiling for one epoch")
+        profile_dir = Path(args.output_dir) / "profiles"
+        profile_dir.mkdir(exist_ok=True)
+
+        # Setup profiler with simpler schedule for better TensorBoard compatibility
+        profiler = profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=schedule(wait=2, warmup=2, active=6, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(str(profile_dir)),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True,
+        )
+
+        # Run one epoch with profiling
+        model.train()
+        profiler.start()
+
+        # Store losses without forcing sync until the end
+        losses = []
+
+        step = 0
+        for batch in train_loader:
+            if step >= 12:  # Profile 12 steps to match our schedule (2+2+6+2)
+                break
+
+            batch = {k: v.to(device) for k, v in batch.items()}
+
+            with torch.autocast(device_type="cuda", enabled=args.fp16):
+                outputs = model(**batch)
+                loss = outputs["loss"]
+
+            loss.backward()
+
+            # Store loss tensor without calling .item() (avoids sync)
+            losses.append(loss.detach())
+
+            profiler.step()
+            step += 1
+
+            if step % 2 == 0:
+                logger.info(f"Profiling step {step}/12")
+
+        # Log losses after profiling is complete (single sync)
+        logger.info("Loss values:")
+        for i, loss_tensor in enumerate(losses):
+            logger.info(f"  Step {i + 1}: {loss_tensor.item():.4f}")
+
+        profiler.stop()
+
+        # Print profiler summary to console
+        logger.info("Profiler Summary:")
+        print(profiler.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+
+        logger.info(f"Profiling completed. Results saved to {profile_dir}")
+        logger.info("TensorBoard traces available in the profiles directory")
+        logger.info(
+            "View detailed traces with: tensorboard --logdir=checkpoints/profiles"
+        )
+        logger.info(
+            "Or install tensorboard-plugin-profile: pip install tensorboard-plugin-profile"
+        )
+        return
 
     # Start training
     logger.info("Starting training")
