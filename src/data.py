@@ -58,7 +58,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         # Tokenize the entire expression
         full_tokens = self.tokenizer.encode(expression)
         original_length = len(full_tokens)
-        
+
         # Convert to tensor and pad/truncate in one step
         input_ids = torch.full((self.max_length,), self.end_token_id, dtype=torch.long)
         seq_len = min(original_length, self.max_length)
@@ -67,7 +67,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
 
         # Find the "=" token and mask everything before it (including "=")
         equals_position = torch.where(input_ids == self.equals_token_id)[0][0]
-        
+
         # Mask from start up to and including the first "=" token
         mask_end = equals_position + 1
         labels[:mask_end] = -100
