@@ -34,6 +34,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.end_token_id = tokenizer.vocab["<end>"]
+        self.equals_token_id = tokenizer.vocab["="]
 
         # Load data
         with open(self.data_path, "r") as f:
@@ -54,51 +55,24 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         """
         expression = self.data[idx]
 
-        # Split at equals sign for completion-style training
-        if "=" in expression:
-            parts = expression.split("=", 1)
-            prompt = parts[0] + "="  # e.g., "3+5="
-            completion = parts[1]  # e.g., "8<end>" or "<think>...</think>8<end>"
-        else:
-            # Fallback for malformed data
-            prompt = expression
-            completion = ""
-
-        # Tokenize prompt and completion separately
-        prompt_tokens = self.tokenizer.encode(prompt)
-        completion_tokens = self.tokenizer.encode(completion) if completion else []
-
-        # Combine for full sequence
-        full_tokens = prompt_tokens + completion_tokens
-
-        # Pad or truncate to max_length
-        if len(full_tokens) > self.max_length:
-            full_tokens = full_tokens[: self.max_length]
-            # Adjust prompt length if needed
-            if len(prompt_tokens) >= self.max_length:
-                prompt_length = self.max_length - 1
-            else:
-                prompt_length = len(prompt_tokens)
-        else:
-            # Pad with end token
-            pad_length = self.max_length - len(full_tokens)
-            full_tokens = full_tokens + [self.end_token_id] * pad_length
-            prompt_length = len(prompt_tokens)
-
-        # Convert to tensor
-        input_ids = torch.tensor(full_tokens, dtype=torch.long)
-
-        # For completion-style training:
-        # - Input is the full sequence
-        # - Labels mask the prompt part, only train on completion
+        # Tokenize the entire expression
+        full_tokens = self.tokenizer.encode(expression)
+        original_length = len(full_tokens)
+        
+        # Convert to tensor and pad/truncate in one step
+        input_ids = torch.full((self.max_length,), self.end_token_id, dtype=torch.long)
+        seq_len = min(original_length, self.max_length)
+        input_ids[:seq_len] = torch.tensor(full_tokens, dtype=torch.long)[:seq_len]
         labels = input_ids.clone()
 
-        # Mask the prompt tokens in labels (don't compute loss on them)
-        if prompt_length > 0:
-            labels[:prompt_length] = -100
+        # Find the "=" token and mask everything before it (including "=")
+        equals_position = torch.where(input_ids == self.equals_token_id)[0][0]
+        
+        # Mask from start up to and including the first "=" token
+        mask_end = equals_position + 1
+        labels[:mask_end] = -100
 
-        # Mask padding tokens in labels
-        original_length = len(prompt_tokens) + len(completion_tokens)
+        # Mask padding tokens
         if original_length < self.max_length:
             labels[original_length:] = -100
 
