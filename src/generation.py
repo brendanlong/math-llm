@@ -28,7 +28,7 @@ def generate_chain_of_thought(operands: list[int]) -> str:
         Chain-of-thought reasoning string showing recursive addition with nested thinking tags
     """
     # Show recursive left-to-right addition
-    reasoning = ["<think_multi>"]
+    reasoning = ["<think>"]
 
     # Add each group of two operands recursively
     remaining_operands = operands.copy()
@@ -46,7 +46,7 @@ def generate_chain_of_thought(operands: list[int]) -> str:
         remaining_operands.insert(0, result)
     reasoning.append(reverse_operand(remaining_operands[0]))
 
-    reasoning.append("</think_multi>")
+    reasoning.append("</think>")
     return "".join(reasoning)
 
 
@@ -71,8 +71,7 @@ def generate_addition_examples(
         fixed_length_cot: Whether to pad CoT to fixed length with <noop> tokens
 
     Returns:
-        List of arithmetic expressions in format "a+b=<think_digit>...</think_digit>c<end>"
-        or "a+b+c=<think_multi>...</think_multi>d<end>" with recursive reasoning
+        List of arithmetic expressions in format "a+b+c=<think>...</think>d<end>" with recursive reasoning
         If fixed_length_cot is True, pads reasoning to 10 * max(digits in operands) * max(number of operands)
     """
     assert max_digits >= 1

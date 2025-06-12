@@ -28,15 +28,14 @@ def test_generate_addition_examples_fixed_length_cot():
     tokenizer = ArithmeticTokenizer()
 
     # Check that examples with reasoning contain <noop> tokens
-    cot_examples = [ex for ex in examples if "<think_" in ex]
+    cot_examples = [ex for ex in examples if "<think>" in ex]
     if cot_examples:  # Only test if we have CoT examples
         for example in cot_examples:
-            if "<think_digit>" in example:
-                assert "<noop>" in example, f"Example missing <noop>: {example}"
+            assert "<noop>" in example, f"Example missing <noop>: {example}"
 
-                # Verify tokenizer can handle it
-                tokens = tokenizer.encode(example)
-                assert tokenizer.vocab["<noop>"] in tokens
+            # Verify tokenizer can handle it
+            tokens = tokenizer.encode(example)
+            assert tokenizer.vocab["<noop>"] in tokens
 
 
 def test_noop_token_in_vocabulary():
@@ -45,7 +44,7 @@ def test_noop_token_in_vocabulary():
 
     # Check token is in vocabulary
     assert "<noop>" in tokenizer.vocab
-    assert tokenizer.vocab["<noop>"] == 18
+    assert tokenizer.vocab["<noop>"] == 15
 
     # Test encoding/decoding
     text = "3+5=<noop><end>"
@@ -73,7 +72,7 @@ def test_fixed_length_preserves_correctness():
             final_answer = rest
 
             # Remove all reasoning content by finding the rightmost position after all closing tags
-            closing_tags = ["</think_digit>", "</think_multi>"]
+            closing_tags = ["</think>"]
             last_tag_end = -1
 
             for tag in closing_tags:
@@ -89,7 +88,7 @@ def test_fixed_length_preserves_correctness():
 
             # Parse operands and expected result - only if operand_part looks valid
             if "+" in operand_part and not any(
-                tag in operand_part for tag in ["<think_", "<noop>"]
+                tag in operand_part for tag in ["<think>", "<noop>"]
             ):
                 try:
                     operands = [int(x.strip()) for x in operand_part.split("+")]

@@ -1,12 +1,10 @@
 """Custom character-level tokenizer for arithmetic expressions with reasoning.
 
-This tokenizer handles a vocabulary of 19 tokens:
+This tokenizer handles a vocabulary of 16 tokens:
 - Digits: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
 - Operators: +, =
 - Special: <end>, <noop>
-- Multi-operand reasoning: <think_multi>, </think_multi>
-- Multi-digit reasoning: <think_digit>, </think_digit>
-- Formatting: \n (newline)
+- Reasoning: <think>, </think>
 """
 
 import tempfile
@@ -35,17 +33,12 @@ VOCAB = {
     "+": 10,
     "=": 11,
     "<end>": 12,
-    "<think_multi>": 13,
-    "</think_multi>": 14,
-    "<think_digit>": 15,
-    "</think_digit>": 16,
-    "\n": 17,
-    "<noop>": 18,
+    "<think>": 13,
+    "</think>": 14,
+    "<noop>": 15,
 }
 
-TOKEN_PATTERN = (
-    r"</think_multi>|</think_digit>|<think_multi>|<think_digit>|<noop>|<end>|\n|[0-9+=]"
-)
+TOKEN_PATTERN = r"</think>|<think>|<noop>|<end>|[0-9+=]"
 
 # Constants derived from vocabulary
 VOCAB_SIZE = len(VOCAB)

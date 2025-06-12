@@ -199,7 +199,7 @@ class ThinkingNode:
 
     def __init__(
         self,
-        tag_type: Literal["think_digit", "think_multi", "text"],
+        tag_type: Literal["think", "text"],
         content: str,
         children: Optional[List["ThinkingNode"]] = None,
     ):
@@ -226,7 +226,7 @@ def parse_thinking_tags(text: str) -> List[ThinkingNode]:
 
     while i < len(text):
         # Look for any tag (opening or closing)
-        tag_match = re.search(r"<(/?)(think_digit|think_multi)>", text[i:])
+        tag_match = re.search(r"<(/?)(think)>", text[i:])
 
         if not tag_match:
             # No more tags, rest is plain text
@@ -356,10 +356,8 @@ def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
                     print(f"{indent_str}{line.strip()}")
         else:
             # Display thinking tag
-            tag_symbol = "🧮" if node.tag_type == "think_digit" else "🎯"
-            print(
-                f"{indent_str}{tag_symbol} {node.tag_type.replace('_', ' ').title()}:"
-            )
+            tag_symbol = "🧮"
+            print(f"{indent_str}{tag_symbol} Thinking:")
 
             # Recursively display children with increased indent
             if node.children:
@@ -393,7 +391,7 @@ def interactive_session_with_probabilities(
     print("This mode shows top-5 next token predictions with probabilities.")
     print("You can:")
     print("  - Press ENTER to accept the top prediction")
-    print("  - Type your own token(s) to continue (e.g., '<think_digit>')")
+    print("  - Type your own token(s) to continue (e.g., '<think>')")
     print("  - Type 'done' to finish the current expression")
     print("  - Type 'quit' or 'exit' to stop")
     print("=" * 50)

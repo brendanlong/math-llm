@@ -3,7 +3,7 @@
 
 This script generates addition problems of varying complexity in the format:
 - Simple: "3+5=8<end>"
-- With reasoning: "658+189=<think_digit>8+9=17\n5+8+1=14\n6+1+1=8</think_digit>847<end>"
+- With reasoning: "3+5+2=<think>3+5+2=8+2=01</think>10<end>"
 
 Supports single-digit through multi-digit addition (up to 10 digits) with
 a distribution that ensures simpler examples remain well-represented.

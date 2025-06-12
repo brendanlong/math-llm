@@ -9,26 +9,11 @@ The current CoT looks like this:
 ```text
 ➤ Enter expression: 99+21=
 💭 Generating completion for: 99+21=
-✨ Model output: 99+21=<think_digit>
-9+1=10
-9+2+1=<think_multi>
-9+2=10
-10+1=<think_digit>
-0+1=1
-1+0=1</think_digit>11</think_multi>11</think_digit>110<end>
+✨ Model output: 99+21=<think>9+1=10 9+2+1=11 0+1=1 1+0=1</think>110<end>
 🤔 Chain of thought:
   99+21=
-  🧮 Think Digit:
-    9+1=10
-    9+2+1=
-    🎯 Think Multi:
-      9+2=10
-      10+1=
-      🧮 Think Digit:
-        0+1=1
-        1+0=1
-      11
-    11
+  🧮 Think:
+    9+1=10 9+2+1=11 0+1=1 1+0=1
   110<end>
 ✅ Answer: 99+21=110
 ```
@@ -272,12 +257,12 @@ The interactive script accepts various input formats:
 ## Model Details
 
 - **Architecture**: Small transformer decoder (1M-10M parameters)
-- **Vocabulary**: 18 tokens (digits 0-9, +, =, <end>, <think_digit>, </think_digit>, <think_multi>, </think_multi>, \n)
+- **Vocabulary**: 16 tokens (digits 0-9, +, =, <end>, <think>, </think>, <noop>)
 - **Context Length**: 128 tokens (sufficient for chain-of-thought reasoning)
 - **Task**: Next-token prediction on arithmetic expressions with reasoning
 - **Formats**:
   - Simple: `"3+5=8<end>"`
-  - With reasoning: `"658+189=<think_digit>\n8+9=17\n5+8+1=14\n6+1+1=8</think_digit>847<end>"`
+  - With reasoning: `"658+189=<think>8+9=17 5+8+1=14 6+1+1=8</think>847<end>"`
 
 ## Hardware Requirements
 

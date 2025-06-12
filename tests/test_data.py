@@ -27,7 +27,7 @@ def sample_data() -> list[str]:
         "7+1=8<end>",
         "4+6=10<end>",
         "9+0=9<end>",
-        "12+34=<think_digit>\n2+4=6\n6\n1+3=4\n4\n</think_digit>46<end>",
+        "12+34=<think>21+43=64</think>46<end>",
     ]
 
 
@@ -41,7 +41,7 @@ def temp_data_file(sample_data: list[str]) -> Path:
             "split": "test",
             "num_examples": len(sample_data),
             "vocab_size": tokenizer.vocab_size,
-            "format": "operand1+operand2=<think_digit>...</think_digit>result<end>",
+            "format": "operand1+operand2=<think>...</think>result<end>",
         },
     }
 

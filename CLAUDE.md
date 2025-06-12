@@ -63,6 +63,6 @@ IMPORTANT: Make sure to update TODO.md before checking anything in!
 
 1. Start with single-digit addition: "3+5=8<end>"
 2. Progress to multi-digit: "12+34=46<end>"
-3. Custom character-level tokenizer (12 tokens total)
+3. Custom character-level tokenizer (16 tokens total)
 4. Small model (~1M-10M parameters) for RTX3060
 5. Track training with W&B visualization

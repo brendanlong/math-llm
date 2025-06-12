@@ -26,14 +26,10 @@ class TestDataGeneration:
             assert decoded == example
 
             # Extract the arithmetic expression
-            if "<think_digit>" in example:
+            if "<think>" in example:
                 # Remove reasoning part for validation
-                problem = example.split("=<think_digit>")[0] + "="
-                answer_part = example.split("</think_digit>")[-1].replace("<end>", "")
-            elif "<think_multi>" in example:
-                # Remove reasoning part for validation
-                problem = example.split("=<think_multi>")[0] + "="
-                answer_part = example.split("</think_multi>")[-1].replace("<end>", "")
+                problem = example.split("=<think>")[0] + "="
+                answer_part = example.split("</think>")[-1].replace("<end>", "")
             else:
                 problem = example.replace("<end>", "")
                 answer_part = problem.split("=")[1]
@@ -88,7 +84,7 @@ class TestDataGeneration:
         )
 
         for example in examples:
-            if "<think_digit>" not in example and "<think_multi>" not in example:
+            if "<think>" not in example:
                 continue
 
             # Parse the example - handle 2-operand only
@@ -100,10 +96,7 @@ class TestDataGeneration:
             a, b = int(operands[0]), int(operands[1])
 
             # Extract answer after reasoning
-            if "</think_digit>" in example:
-                answer_part = example.split("</think_digit>")[-1].replace("<end>", "")
-            else:
-                answer_part = example.split("</think_multi>")[-1].replace("<end>", "")
+            answer_part = example.split("</think>")[-1].replace("<end>", "")
             result = int(answer_part)
 
             # Verify arithmetic
@@ -150,17 +143,12 @@ class TestDataGeneration:
 
             # Extract the final answer after all thinking
             # Find the last closing thinking tag and get everything after it
-            last_close_multi = example.rfind("</think_multi>")
-            last_close_digit = example.rfind("</think_digit>")
+            last_close_think = example.rfind("</think>")
 
-            if last_close_multi > last_close_digit:
-                answer_part = example[
-                    last_close_multi + len("</think_multi>") :
-                ].replace("<end>", "")
-            elif last_close_digit >= 0:
-                answer_part = example[
-                    last_close_digit + len("</think_digit>") :
-                ].replace("<end>", "")
+            if last_close_think >= 0:
+                answer_part = example[last_close_think + len("</think>") :].replace(
+                    "<end>", ""
+                )
             else:
                 answer_part = example.split("=")[1].replace("<end>", "")
 

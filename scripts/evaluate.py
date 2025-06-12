@@ -31,9 +31,9 @@ from src.tokenizer import ArithmeticTokenizer
 
 
 def remove_thinking_sections(text: str) -> str:
-    """Remove thinking sections from text (both digit and multi-operand reasoning).
+    """Remove thinking sections from text.
 
-    Handles both <think_digit>...</think_digit> and <think_multi>...</think_multi> sections.
+    Handles <think>...</think> sections.
     Uses first thinking tag and last corresponding closing tag to handle nested tokens.
 
     Args:
@@ -42,25 +42,15 @@ def remove_thinking_sections(text: str) -> str:
     Returns:
         Text with thinking sections removed
     """
-    # Remove digit thinking sections
+    # Remove thinking sections
     while True:
-        first_digit = text.find("<think_digit>")
-        if first_digit == -1:
+        first_think = text.find("<think>")
+        if first_think == -1:
             break
-        last_digit = text.rfind("</think_digit>")
-        if last_digit == -1 or last_digit < first_digit:
+        last_think = text.rfind("</think>")
+        if last_think == -1 or last_think < first_think:
             break
-        text = text[:first_digit] + text[last_digit + 14 :]
-
-    # Remove multi-operand thinking sections
-    while True:
-        first_multi = text.find("<think_multi>")
-        if first_multi == -1:
-            break
-        last_multi = text.rfind("</think_multi>")
-        if last_multi == -1 or last_multi < first_multi:
-            break
-        text = text[:first_multi] + text[last_multi + 14 :]
+        text = text[:first_think] + text[last_think + 8 :]
 
     return text
 
@@ -70,7 +60,7 @@ def create_thinking_mask(
 ) -> torch.Tensor:
     """Create a mask that excludes tokens inside thinking sections.
 
-    Handles both <think_digit>...</think_digit> and <think_multi>...</think_multi> sections.
+    Handles <think>...</think> sections.
     Uses first thinking tag and last corresponding closing tag to handle nested tokens.
 
     Args:
@@ -80,11 +70,9 @@ def create_thinking_mask(
     Returns:
         Boolean tensor with same shape, True for tokens to include in accuracy
     """
-    # Get token IDs for both types of thinking
-    think_digit_id = tokenizer.vocab["<think_digit>"]
-    end_think_digit_id = tokenizer.vocab["</think_digit>"]
-    think_multi_id = tokenizer.vocab["<think_multi>"]
-    end_think_multi_id = tokenizer.vocab["</think_multi>"]
+    # Get token IDs for thinking
+    think_id = tokenizer.vocab["<think>"]
+    end_think_id = tokenizer.vocab["</think>"]
 
     mask = torch.ones_like(token_ids, dtype=torch.bool)
 
@@ -95,35 +83,21 @@ def create_thinking_mask(
 
             # Find all thinking sections and mask them
             for pos in range(len(seq)):
-                # Check for digit thinking start
-                if seq[pos] == think_digit_id:
+                # Check for thinking start
+                if seq[pos] == think_id:
                     # Find matching close tag
                     for end_pos in range(pos + 1, len(seq)):
-                        if seq[end_pos] == end_think_digit_id:
-                            mask[batch_idx, pos : end_pos + 1] = False
-                            break
-                # Check for multi thinking start
-                elif seq[pos] == think_multi_id:
-                    # Find matching close tag
-                    for end_pos in range(pos + 1, len(seq)):
-                        if seq[end_pos] == end_think_multi_id:
+                        if seq[end_pos] == end_think_id:
                             mask[batch_idx, pos : end_pos + 1] = False
                             break
     else:
         # Handle 1D tensor
         for pos in range(len(token_ids)):
-            # Check for digit thinking start
-            if token_ids[pos] == think_digit_id:
+            # Check for thinking start
+            if token_ids[pos] == think_id:
                 # Find matching close tag
                 for end_pos in range(pos + 1, len(token_ids)):
-                    if token_ids[end_pos] == end_think_digit_id:
-                        mask[pos : end_pos + 1] = False
-                        break
-            # Check for multi thinking start
-            elif token_ids[pos] == think_multi_id:
-                # Find matching close tag
-                for end_pos in range(pos + 1, len(token_ids)):
-                    if token_ids[end_pos] == end_think_multi_id:
+                    if token_ids[end_pos] == end_think_id:
                         mask[pos : end_pos + 1] = False
                         break
 
