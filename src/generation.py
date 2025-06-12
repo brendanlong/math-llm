@@ -1,5 +1,6 @@
 """Data generation utilities for arithmetic expressions with chain-of-thought reasoning."""
 
+import multiprocessing
 import random
 
 from .tokenizer import ArithmeticTokenizer
@@ -122,6 +123,99 @@ def generate_addition_examples(
 
         example = f"{'+'.join(map(str, operands))}={reasoning}{result}<end>"
         examples.append(example)
+
+    return examples
+
+
+def _generate_examples_chunk(
+    num_examples: int,
+    max_digits: int,
+    seed: int,
+    max_operands: int,
+    fixed_length_cot: bool,
+) -> list[str]:
+    """Generate a chunk of examples in a worker process.
+
+    Args:
+        num_examples: Number of examples to generate in this chunk
+        max_digits: Maximum number of digits per operand
+        seed: Random seed for this worker
+        max_operands: Maximum number of operands
+        fixed_length_cot: Whether to use fixed-length chain-of-thought
+
+    Returns:
+        List of generated examples
+    """
+    return generate_addition_examples(
+        num_examples=num_examples,
+        max_digits=max_digits,
+        seed=seed,
+        max_operands=max_operands,
+        fixed_length_cot=fixed_length_cot,
+    )
+
+
+def generate_addition_examples_parallel(
+    num_examples: int,
+    max_digits: int = 3,
+    seed: int = 42,
+    max_operands: int = 3,
+    fixed_length_cot: bool = False,
+    num_workers: int | None = None,
+) -> list[str]:
+    """Generate addition examples using multiple processes.
+
+    Args:
+        num_examples: Total number of examples to generate
+        max_digits: Maximum number of digits per operand
+        seed: Base random seed
+        max_operands: Maximum number of operands
+        fixed_length_cot: Whether to use fixed-length chain-of-thought
+        num_workers: Number of worker processes (default: CPU count)
+
+    Returns:
+        List of generated examples
+    """
+    if num_workers is None:
+        num_workers = multiprocessing.cpu_count()
+
+    # If we have few examples or only one worker, use serial generation
+    if num_examples < num_workers * 10 or num_workers == 1:
+        return generate_addition_examples(
+            num_examples=num_examples,
+            max_digits=max_digits,
+            seed=seed,
+            max_operands=max_operands,
+            fixed_length_cot=fixed_length_cot,
+        )
+
+    # Calculate examples per worker
+    examples_per_worker = num_examples // num_workers
+    remaining_examples = num_examples % num_workers
+
+    # Create work chunks with different seeds for each worker
+    work_chunks = []
+    for i in range(num_workers):
+        chunk_size = examples_per_worker + (1 if i < remaining_examples else 0)
+        if chunk_size > 0:
+            work_chunks.append(
+                (
+                    chunk_size,
+                    max_digits,
+                    seed + i,  # Different seed for each worker
+                    max_operands,
+                    fixed_length_cot,
+                )
+            )
+
+    # Generate examples in parallel
+    with multiprocessing.Pool(processes=len(work_chunks)) as pool:
+        results = pool.starmap(_generate_examples_chunk, work_chunks)
+
+    # Flatten results
+    examples = []
+    for chunk_examples in results:
+        examples.extend(chunk_examples)
 
     return examples
 

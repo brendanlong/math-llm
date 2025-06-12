@@ -19,7 +19,7 @@ from pathlib import Path
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.generation import generate_addition_examples, split_data
+from src.generation import generate_addition_examples_parallel, split_data
 from src.types import DatasetDict
 
 
@@ -93,6 +93,12 @@ def main():
         action="store_true",
         help="Enable fixed-length chain-of-thought padding with <noop> tokens",
     )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=None,
+        help="Number of worker processes for parallel generation (default: CPU count)",
+    )
 
     args = parser.parse_args()
 
@@ -104,17 +110,19 @@ def main():
     print(f"Maximum digits per operand: {args.max_digits}")
     print(f"Random seed: {args.seed}")
     print(f"Output directory: {args.output_dir}")
+    print(f"Number of workers: {args.num_workers or 'CPU count'}")
     print(
         f"Split ratios - Train: {args.train_ratio}, Val: {args.val_ratio}, Test: {1 - args.train_ratio - args.val_ratio}"
     )
 
     # Generate examples
-    examples = generate_addition_examples(
-        args.num_examples,
-        args.max_digits,
-        args.seed,
+    examples = generate_addition_examples_parallel(
+        num_examples=args.num_examples,
+        max_digits=args.max_digits,
+        seed=args.seed,
         fixed_length_cot=args.fixed_length_cot,
         max_operands=args.max_operands,
+        num_workers=args.num_workers,
     )
     print(f"Generated {len(examples)} examples")
 
