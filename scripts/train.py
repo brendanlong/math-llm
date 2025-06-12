@@ -361,6 +361,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model="eval_token_accuracy",
         greater_is_better=True,
+        torch_compile=True,
     )
 
     # Create trainer
