@@ -13,17 +13,24 @@ The data is saved as JSON files with train/validation/test splits (80/10/10).
 
 import argparse
 import json
+import multiprocessing
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.generation import generate_addition_examples_parallel, split_data
-from src.types import DatasetDict
+from src.types import DatasetDict, DatasetMetadata
 
 
-def save_dataset(examples: list[str], output_path: Path, split_name: str) -> None:
+def save_dataset(
+    examples: list[str],
+    output_path: Path,
+    split_name: str,
+    metadata: DatasetMetadata | None = None,
+) -> None:
     """Save dataset to JSON file.
 
     Args:
@@ -34,6 +41,8 @@ def save_dataset(examples: list[str], output_path: Path, split_name: str) -> Non
     output_path.mkdir(parents=True, exist_ok=True)
 
     dataset: DatasetDict = {"examples": examples}
+    if metadata:
+        dataset["metadata"] = metadata
 
     # Save to JSON file
     output_file = output_path / f"{split_name}.json"
@@ -101,8 +110,8 @@ def main():
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=None,
-        help="Number of worker processes for parallel generation (default: CPU count)",
+        default=multiprocessing.cpu_count(),
+        help="Number of worker processes for parallel generation (default: %(default)s)",
     )
 
     args = parser.parse_args()
@@ -115,7 +124,7 @@ def main():
     print(f"Maximum digits per operand: {args.max_digits}")
     print(f"Random seed: {args.seed}")
     print(f"Output directory: {args.output_dir}")
-    print(f"Number of workers: {args.num_workers or 'CPU count'}")
+    print(f"Number of workers: {args.num_workers}")
     print(
         f"Split ratios - Train: {args.train_ratio}, Val: {args.val_ratio}, Test: {1 - args.train_ratio - args.val_ratio}"
     )
@@ -147,11 +156,29 @@ def main():
     print(f"  Validation: {len(val_examples)} examples")
     print(f"  Test: {len(test_examples)} examples")
 
+    # Create metadata
+    metadata: DatasetMetadata = {
+        "max_digits": args.max_digits,
+        "max_operands": args.max_operands,
+        "seed": args.seed,
+        "num_workers": args.num_workers,
+        "include_chain_of_thought": not args.no_include_cot,
+        "fixed_length_cot": args.fixed_length_cot,
+        "num_examples": args.num_examples,
+        "split_ratios": {
+            "train": args.train_ratio,
+            "val": args.val_ratio,
+            "test": 1 - args.train_ratio - args.val_ratio,
+        },
+        "generation_timestamp": datetime.now().isoformat(),
+        "generation_version": "1.0.0",
+    }
+
     # Save datasets
     print(f"\nSaving datasets to {args.output_dir}/...")
-    save_dataset(train_examples, args.output_dir, "train")
-    save_dataset(val_examples, args.output_dir, "val")
-    save_dataset(test_examples, args.output_dir, "test")
+    save_dataset(train_examples, args.output_dir, "train", metadata)
+    save_dataset(val_examples, args.output_dir, "val", metadata)
+    save_dataset(test_examples, args.output_dir, "test", metadata)
 
     print("\nData generation complete!")
 
