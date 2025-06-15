@@ -61,6 +61,7 @@ def generate_addition_examples(
     seed: int = 42,
     max_operands: int = 3,
     fixed_length_cot: bool = False,
+    include_chain_of_thought: bool = True,
 ) -> list[str]:
     """Generate addition examples with chain-of-thought for multi-digit problems.
 
@@ -106,7 +107,9 @@ def generate_addition_examples(
         result = sum(operands)
 
         # Generate chain-of-thought reasoning
-        reasoning = generate_chain_of_thought(operands)
+        reasoning = (
+            generate_chain_of_thought(operands) if include_chain_of_thought else ""
+        )
 
         # Apply fixed-length padding if enabled
         if fixed_length_cot:
@@ -133,6 +136,7 @@ def _generate_examples_chunk(
     seed: int,
     max_operands: int,
     fixed_length_cot: bool,
+    include_chain_of_thought: bool,
 ) -> list[str]:
     """Generate a chunk of examples in a worker process.
 
@@ -152,6 +156,7 @@ def _generate_examples_chunk(
         seed=seed,
         max_operands=max_operands,
         fixed_length_cot=fixed_length_cot,
+        include_chain_of_thought=include_chain_of_thought,
     )
 
 
@@ -161,6 +166,7 @@ def generate_addition_examples_parallel(
     seed: int = 42,
     max_operands: int = 3,
     fixed_length_cot: bool = False,
+    include_chain_of_thought: bool = True,
     num_workers: int | None = None,
 ) -> list[str]:
     """Generate addition examples using multiple processes.
@@ -187,6 +193,7 @@ def generate_addition_examples_parallel(
             seed=seed,
             max_operands=max_operands,
             fixed_length_cot=fixed_length_cot,
+            include_chain_of_thought=include_chain_of_thought,
         )
 
     # Calculate examples per worker
@@ -205,6 +212,7 @@ def generate_addition_examples_parallel(
                     seed + i,  # Different seed for each worker
                     max_operands,
                     fixed_length_cot,
+                    include_chain_of_thought,
                 )
             )
 

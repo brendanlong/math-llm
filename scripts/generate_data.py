@@ -89,6 +89,11 @@ def main():
         help="Fraction of data for validation (default: %(default)s)",
     )
     parser.add_argument(
+        "--no-include-cot",
+        action="store_true",
+        help="Disable including reasoning in <think> tags",
+    )
+    parser.add_argument(
         "--fixed-length-cot",
         action="store_true",
         help="Enable fixed-length chain-of-thought padding with <noop> tokens",
@@ -121,6 +126,7 @@ def main():
         max_digits=args.max_digits,
         seed=args.seed,
         fixed_length_cot=args.fixed_length_cot,
+        include_chain_of_thought=not args.no_include_cot,
         max_operands=args.max_operands,
         num_workers=args.num_workers,
     )
