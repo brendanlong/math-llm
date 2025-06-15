@@ -79,29 +79,29 @@ def generate_addition_examples(
     assert max_digits >= 1
     assert max_operands >= 2
 
-    random.seed(seed)
+    r = random.Random(seed)
     examples = []
     tokenizer = ArithmeticTokenizer()
     cot_length = 20 * max_digits * max_operands
 
     for _ in range(num_examples):
         # First select number of operands
-        num_operands = random.randint(2, max_operands)
+        num_operands = r.randint(2, max_operands)
 
         # Generate operands with uniform distribution of digit counts
         operands = []
         for _ in range(num_operands):
             # Select number of digits uniformly from 1 to max_digits
-            num_digits = random.randint(1, max_digits)
+            num_digits = r.randint(1, max_digits)
 
             if num_digits == 1:
                 # For 1 digit: 0-9
-                operand = random.randint(0, 9)
+                operand = r.randint(0, 9)
             else:
                 # For n digits: 10^(n-1) to 10^n - 1
                 min_value = 10 ** (num_digits - 1)
                 max_value = 10**num_digits - 1
-                operand = random.randint(min_value, max_value)
+                operand = r.randint(min_value, max_value)
 
             operands.append(operand)
         result = sum(operands)
@@ -199,7 +199,10 @@ def generate_addition_examples_parallel(
 
 
 def split_data(
-    examples: list[str], train_ratio: float = 0.8, val_ratio: float = 0.1
+    examples: list[str],
+    train_ratio: float = 0.8,
+    val_ratio: float = 0.1,
+    seed: int = 42,
 ) -> tuple[list[str], list[str], list[str]]:
     """Split data into train/validation/test sets.
 
@@ -217,7 +220,8 @@ def split_data(
 
     # Shuffle examples before splitting
     shuffled = examples.copy()
-    random.shuffle(shuffled)
+    r = random.Random(seed)
+    r.shuffle(shuffled)
 
     train_examples = shuffled[:train_size]
     val_examples = shuffled[train_size : train_size + val_size]

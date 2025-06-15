@@ -1,7 +1,5 @@
 """Tests for data generation utilities."""
 
-import random
-
 from src.generation import (
     generate_addition_examples,
     generate_addition_examples_parallel,
@@ -169,13 +167,20 @@ class TestDataSplitting:
         """Test that splits are reproducible with same random state."""
         examples = [f"example_{i}" for i in range(30)]
 
-        # Reset random state before each split
-        random.seed(42)
-        train1, val1, test1 = split_data(examples)
-
-        random.seed(42)
-        train2, val2, test2 = split_data(examples)
+        train1, val1, test1 = split_data(examples, seed=42)
+        train2, val2, test2 = split_data(examples, seed=42)
 
         assert train1 == train2
         assert val1 == val2
         assert test1 == test2
+
+    def test_split_different_seed(self):
+        """Test that splits with a different random state are different."""
+        examples = [f"example_{i}" for i in range(30)]
+
+        train1, val1, test1 = split_data(examples, seed=1)
+        train2, val2, test2 = split_data(examples, seed=2)
+
+        assert train1 != train2
+        assert val1 != val2
+        assert test1 != test2

@@ -139,7 +139,7 @@ def main():
 
     # Split data
     train_examples, val_examples, test_examples = split_data(
-        examples, args.train_ratio, args.val_ratio
+        examples, args.train_ratio, args.val_ratio, args.seed
     )
 
     print("\nData splits:")
