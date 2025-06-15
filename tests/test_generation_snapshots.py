@@ -2,37 +2,106 @@
 
 from typing import Any
 
-from src.generation import generate_chain_of_thought
+from src.generation import generate_addition_examples
 
 
 def test_chain_of_thought_snapshots(snapshot: Any) -> None:
-    """Test chain-of-thought generation with snapshots."""
-    # Single digit
-    assert generate_chain_of_thought([3, 5]) == snapshot
-
-    # Two digit without carry
-    assert generate_chain_of_thought([12, 34]) == snapshot
-
-    # Two digit with carry
-    assert generate_chain_of_thought([28, 17]) == snapshot
-
-    # Multi-digit with multiple carries
-    assert generate_chain_of_thought([658, 189]) == snapshot
-
-
-def test_recursive_chain_of_thought_snapshots(snapshot: Any) -> None:
-    """Test recursive chain-of-thought generation with snapshots."""
+    """Test test generation with chain of thought."""
     # Two operands
-    assert generate_chain_of_thought([28, 17]) == snapshot
+    assert (
+        generate_addition_examples(
+            num_examples=2,
+            max_digits=1,
+            seed=12,
+            max_operands=2,
+            include_chain_of_thought=True,
+        )
+        == snapshot
+    )
 
     # Three operands simple
-    assert generate_chain_of_thought([3, 5, 2]) == snapshot
+    assert (
+        generate_addition_examples(
+            num_examples=2,
+            max_digits=1,
+            seed=13,
+            max_operands=3,
+            include_chain_of_thought=True,
+        )
+        == snapshot
+    )
 
-    # Three operands with carries
-    assert generate_chain_of_thought([28, 17, 94]) == snapshot
+    # Three operands with more digits
+    assert (
+        generate_addition_examples(
+            num_examples=2,
+            max_digits=3,
+            seed=12,
+            max_operands=3,
+            include_chain_of_thought=True,
+        )
+        == snapshot
+    )
 
-    # Three operands complex
-    assert generate_chain_of_thought([658, 189, 234]) == snapshot
+    # Large number of operands and digits
+    assert (
+        generate_addition_examples(
+            num_examples=2,
+            max_digits=5,
+            seed=12,
+            max_operands=5,
+            include_chain_of_thought=True,
+        )
+        == snapshot
+    )
 
-    # Four operands complex
-    assert generate_chain_of_thought([658, 189, 234, 99]) == snapshot
+
+def test_no_chain_of_thought_snapshots(snapshot: Any) -> None:
+    """Test test generation with no chain of thought."""
+    # Two operands
+    assert (
+        generate_addition_examples(
+            num_examples=2,
+            max_digits=1,
+            seed=12,
+            max_operands=2,
+            include_chain_of_thought=False,
+        )
+        == snapshot
+    )
+
+    # Three operands simple
+    assert (
+        generate_addition_examples(
+            num_examples=2,
+            max_digits=1,
+            seed=13,
+            max_operands=3,
+            include_chain_of_thought=False,
+        )
+        == snapshot
+    )
+
+    # Three operands with more digits
+    assert (
+        generate_addition_examples(
+            num_examples=2,
+            max_digits=3,
+            seed=12,
+            max_operands=3,
+            include_chain_of_thought=False,
+        )
+        == snapshot
+    )
+
+    # Large number of operands and digits
+    assert (
+        generate_addition_examples(
+            num_examples=2,
+            max_digits=5,
+            seed=12,
+            max_operands=5,
+            include_chain_of_thought=False,
+        )
+        == snapshot
+    )

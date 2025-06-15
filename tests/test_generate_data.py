@@ -4,6 +4,7 @@ import random
 
 from src.generation import (
     generate_addition_examples,
+    generate_addition_examples_parallel,
     split_data,
 )
 from src.tokenizer import ArithmeticTokenizer
@@ -65,100 +66,70 @@ class TestDataGeneration:
 
     def test_max_digits_parameter(self):
         """Test that max_digits parameter is respected."""
-        examples = generate_addition_examples(num_examples=20, max_digits=1, seed=42)
+        for max_digits in range(1, 9):
+            examples = generate_addition_examples(
+                num_examples=20, max_digits=max_digits, seed=42, max_operands=5
+            )
 
-        for example in examples:
-            # Extract operands
-            problem = example.split("=")[0]
-            operands = problem.split("+")
-            a, b = int(operands[0]), int(operands[1])
-
-            # Should be single digit
-            assert 0 <= a <= 9
-            assert 0 <= b <= 9
-
-    def test_reasoning_consistency(self):
-        """Test that reasoning leads to correct answer."""
-        examples = generate_addition_examples(
-            num_examples=10, max_digits=2, seed=42, max_operands=2
-        )
-
-        for example in examples:
-            if "<think>" not in example:
-                continue
-
-            # Parse the example - handle 2-operand only
-            parts = example.split("=")
-            operands = parts[0].split("+")
-            if len(operands) != 2:
-                continue  # Skip 3-operand examples
-
-            a, b = int(operands[0]), int(operands[1])
-
-            # Extract answer after reasoning
-            answer_part = example.split("</think>")[-1].replace("<end>", "")
-            result = int(answer_part)
-
-            # Verify arithmetic
-            assert a + b == result
-
-    def test_three_operand_examples(self):
-        """Test generation of 3-operand examples."""
-        examples = generate_addition_examples(
-            num_examples=20, max_digits=1, seed=42, max_operands=3
-        )
-
-        # Should have both 2-operand and 3-operand examples
-        two_operand_count = 0
-        three_operand_count = 0
-
-        for example in examples:
-            # Extract just the problem part (before the = and any reasoning)
-            problem = example.split("=")[0]
-            plus_count = problem.count("+")
-
-            if plus_count == 1:
-                two_operand_count += 1
-            elif plus_count == 2:
-                three_operand_count += 1
-
-        assert two_operand_count > 0
-        assert three_operand_count > 0
-        assert two_operand_count + three_operand_count == len(examples)
-
-    def test_three_operand_validity(self):
-        """Test that 3-operand examples are mathematically correct."""
-        examples = generate_addition_examples(
-            num_examples=20, max_digits=1, seed=42, max_operands=3
-        )
-
-        for example in examples:
-            # Extract just the problem part to count operands
-            problem = example.split("=")[0]
-            if problem.count("+") != 2:  # Skip 2-operand examples
-                continue
-
-            # Extract the arithmetic expression - get the problem part before any thinking
-            problem_part = example.split("=")[0]
-
-            # Extract the final answer after all thinking
-            # Find the last closing thinking tag and get everything after it
-            last_close_think = example.rfind("</think>")
-
-            if last_close_think >= 0:
-                answer_part = example[last_close_think + len("</think>") :].replace(
-                    "<end>", ""
+            all_operands = []
+            for example in examples:
+                # Extract operands
+                problem = example.split("=")[0]
+                operands = list(map(int, problem.split("+")))
+                # All of the operands should be less than 10^max_digits, i.e. 2-digit numbers should be < 100
+                out_of_range = [
+                    operand
+                    for operand in operands
+                    if not (0 <= operand < 10**max_digits)
+                ]
+                assert not out_of_range, (
+                    f"All operands for max_digits={max_digits} should be between 0 and {10**max_digits} but got {out_of_range}"
                 )
-            else:
-                answer_part = example.split("=")[1].replace("<end>", "")
 
-            # Parse operands and result
-            operands = problem_part.split("+")
-            a, b, c = int(operands[0]), int(operands[1]), int(operands[2])
-            result = int(answer_part)
+                all_operands.extend(operands)
+            # Some of the operands should be greater than 10^(max_digits-1), i.e. 2-digit numbers should be > 9
+            full_digit = [
+                operand for operand in all_operands if operand > 10 ** (max_digits - 1)
+            ]
+            assert full_digit, (
+                f"At least one operand for max_digits={max_digits} should be greater than {10 ** (max_digits - 1)} but got {all_operands}"
+            )
 
-            # Check arithmetic
-            assert a + b + c == result
+    def test_max_operands_parameter(self):
+        """Test that max_operands parameter is respected."""
+        for max_operands in range(2, 9):
+            examples = generate_addition_examples(
+                num_examples=20, max_digits=5, seed=42, max_operands=max_operands
+            )
+
+            all_operands: list[list[int]] = []
+            for example in examples:
+                # Extract operands
+                problem = example.split("=")[0]
+                operands = list(map(int, problem.split("+")))
+                assert 2 <= len(operands) <= max_operands
+
+                all_operands.append(operands)
+            # Some of the examples should have max_operands
+            assert [example for example in all_operands if len(example) == max_operands]
+
+    def test_no_duplicates(self):
+        # Note that we could get duplicates with enough examples since there's only so many 1-digit operands, but
+        # not in 100 examples
+        examples = generate_addition_examples(
+            num_examples=100, max_digits=3, seed=42, max_operands=5
+        )
+        assert len(set(examples)) == len(examples)
+
+
+class TestGenerationWorkers:
+    def test_no_duplicates_parallel(self):
+        # Note that we could get duplicates with enough examples since there's only so many 1-digit operands, but
+        # not in 100 examples
+        examples = generate_addition_examples_parallel(
+            num_examples=100, max_digits=3, seed=42, max_operands=5, num_workers=10
+        )
+        assert len(set(examples)) == len(examples)
 
 
 class TestDataSplitting:
