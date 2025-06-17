@@ -201,7 +201,7 @@ def main() -> None:
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=1e-4,
+        default=1e-3,
         help="Learning rate",
     )
     parser.add_argument(

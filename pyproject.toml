@@ -34,3 +34,10 @@ reportUnknownMemberType = false
 reportUnusedImport = false
 reportUnknownVariableType = false
 reportUnknownArgumentType = false
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests that require training (deselect with '-m \"not integration\"')",
+]
+# By default, exclude integration tests
+addopts = "-m 'not integration'"
