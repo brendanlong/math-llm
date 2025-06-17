@@ -45,6 +45,19 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 - **Checkpointing**: Save every 1000 steps for quick restart
 - **Monitoring**: Weights & Biases for metrics visualization
 
+### Gumbel-Softmax Generation Mode
+
+An alternative training mode that replaces teacher forcing with differentiable sequence generation:
+
+- **Purpose**: Enable the model to generate complete sequences during training while maintaining gradient flow
+- **Mechanism**: Uses Gumbel-Softmax with straight-through estimator to sample tokens differentiably
+- **Benefits**:
+  - Model learns from its own generation patterns rather than always seeing ground truth
+  - Can help with exposure bias issues common in teacher forcing
+  - Allows exploration of different generation strategies during training
+- **Temperature Control**: Lower temperatures (e.g., 0.1-0.5) produce more discrete samples, higher temperatures produce softer distributions
+- **Usage**: Enable with `--use-gumbel` flag and control temperature with `--gumbel-temperature`
+
 ### CoT-Agnostic Training Mode
 
 A special training mode that allows the model to think flexibly while maintaining correct final answers:

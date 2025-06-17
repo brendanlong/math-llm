@@ -12,7 +12,7 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import Sized, cast
+from typing import Any, Optional, Sized, cast
 
 import colorlog
 import numpy as np
@@ -28,7 +28,7 @@ import wandb
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.data import load_splits
-from src.model import create_model
+from src.model import ArithmeticModel, create_model
 from src.tokenizer import VOCAB, ArithmeticTokenizer
 
 
@@ -150,6 +150,138 @@ def data_collator(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tenso
     input_ids = torch.stack([item["input_ids"] for item in batch])
     labels = torch.stack([item["labels"] for item in batch])
     return {"input_ids": input_ids, "labels": labels}
+
+
+class GumbelTrainer(Trainer):
+    """Custom trainer that supports Gumbel-Softmax generation."""
+
+    def __init__(
+        self,
+        use_gumbel: bool = False,
+        gumbel_temperature: float = 1.0,
+        tokenizer: Optional[ArithmeticTokenizer] = None,
+        **kwargs: Any,
+    ):
+        super().__init__(**kwargs)
+        assert self.model is not None, "Model must be provided to GumbelTrainer"
+        self.use_gumbel = use_gumbel
+        self.gumbel_temperature = gumbel_temperature
+        self.tokenizer = tokenizer
+
+    def compute_loss(
+        self,
+        model: ArithmeticModel,
+        inputs: dict[str, torch.Tensor],
+        return_outputs: bool = False,
+        num_items_in_batch: Optional[int] = None,
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        """Override compute_loss to pass Gumbel-Softmax parameters."""
+        # Only use Gumbel during training, not evaluation
+        if self.use_gumbel and model.training:
+            inputs["use_gumbel"] = torch.tensor(True)
+            inputs["gumbel_temperature"] = torch.tensor(self.gumbel_temperature)
+
+        if return_outputs:
+            outputs = model(**inputs)
+            loss = outputs["loss"]
+            return loss, outputs
+        else:
+            return model(**inputs)["loss"]
+
+    def evaluate(
+        self,
+        eval_dataset: Optional[Any] = None,
+        ignore_keys: Optional[list[str]] = None,
+        metric_key_prefix: str = "eval",
+    ) -> dict[str, float]:
+        """Custom evaluation that includes generation-based metrics for Gumbel training."""
+        # First run standard evaluation
+        results = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
+
+        # If using Gumbel training, add generation-based evaluation
+        if self.use_gumbel and self.tokenizer is not None:
+            gen_results = self._evaluate_generation(eval_dataset or self.eval_dataset)
+            # Add generation metrics with prefix
+            for key, value in gen_results.items():
+                results[f"{metric_key_prefix}_gen_{key}"] = value
+
+        return results
+
+    def _evaluate_generation(
+        self, eval_dataset: Any, num_samples: int = 100
+    ) -> dict[str, float]:
+        """Evaluate model using actual generation on a subset of examples."""
+        import random
+
+        assert self.model is not None
+        self.model.eval()
+        correct = 0
+        total = 0
+
+        # Sample random examples from eval dataset
+        dataset_size = len(eval_dataset)
+        sample_indices = random.sample(
+            range(dataset_size), min(num_samples, dataset_size)
+        )
+
+        with torch.no_grad():
+            for idx in sample_indices:
+                example = eval_dataset[idx]
+                input_ids = example["input_ids"].unsqueeze(0).to(self.model.device)
+                labels = example["labels"].unsqueeze(0).to(self.model.device)
+
+                # Find the prompt part (before the answer)
+                equals_token = VOCAB["="]
+                equals_pos = (input_ids == equals_token).nonzero(as_tuple=True)
+                if len(equals_pos[1]) > 0:
+                    prompt_end = equals_pos[1][0].item() + 1
+                    prompt = input_ids[:, :prompt_end]
+
+                    # Generate completion
+                    model = cast(ArithmeticModel, self.model)
+                    generated = model.generate(
+                        prompt,
+                        max_new_tokens=10,
+                        temperature=0.1,  # Low temperature for deterministic generation
+                        end_token_id=VOCAB["<end>"],
+                    )
+
+                    # Extract the answer part and compare with expected
+                    expected_answer = labels[0, prompt_end:].cpu()
+                    generated_answer = generated[0, prompt_end:].cpu()
+
+                    # Compare up to the length of expected answer
+                    min_len = min(len(expected_answer), len(generated_answer))
+                    if min_len > 0:
+                        # Check if answers match (ignoring padding/end tokens after first <end>)
+                        exp_seq = expected_answer[:min_len]
+                        gen_seq = generated_answer[:min_len]
+
+                        # Find first <end> token in each
+                        end_token = VOCAB["<end>"]
+                        exp_end = (exp_seq == end_token).nonzero(as_tuple=True)
+                        gen_end = (gen_seq == end_token).nonzero(as_tuple=True)
+
+                        exp_len = (
+                            exp_end[0][0].item() + 1
+                            if len(exp_end[0]) > 0
+                            else len(exp_seq)
+                        )
+                        gen_len = (
+                            gen_end[0][0].item() + 1
+                            if len(gen_end[0]) > 0
+                            else len(gen_seq)
+                        )
+
+                        # Compare sequences up to first <end> token
+                        match_len = min(exp_len, gen_len)
+                        if torch.equal(exp_seq[:match_len], gen_seq[:match_len]):
+                            correct += 1
+
+                total += 1
+
+        generation_accuracy = correct / total if total > 0 else 0.0
+        return {"accuracy": generation_accuracy, "samples": total}
 
 
 def main() -> None:
@@ -274,6 +406,17 @@ def main() -> None:
         action="store_true",
         help="Run one epoch with torch.profiler and save results",
     )
+    parser.add_argument(
+        "--use-gumbel",
+        action="store_true",
+        help="Use Gumbel-Softmax for differentiable sequence generation instead of teacher forcing",
+    )
+    parser.add_argument(
+        "--gumbel-temperature",
+        type=float,
+        default=1.0,
+        help="Temperature for Gumbel-Softmax (lower = more discrete)",
+    )
 
     args = parser.parse_args()
 
@@ -291,6 +434,10 @@ def main() -> None:
 
     # Initialize W&B
     if not args.no_wandb:
+        wandb_name = f"arithmetic-{args.model_size}-{args.batch_size}batch-{args.learning_rate}lr"
+        if args.use_gumbel:
+            wandb_name += f"-gumbel{args.gumbel_temperature}"
+
         wandb.init(
             project="math-llm",
             config={
@@ -300,8 +447,10 @@ def main() -> None:
                 "num_epochs": args.num_epochs,
                 "max_length": args.max_length,
                 "seed": args.seed,
+                "use_gumbel": args.use_gumbel,
+                "gumbel_temperature": args.gumbel_temperature,
             },
-            name=f"arithmetic-{args.model_size}-{args.batch_size}batch-{args.learning_rate}lr",
+            name=wandb_name,
         )
 
     # Initialize tokenizer
@@ -337,6 +486,15 @@ def main() -> None:
         torch.set_float32_matmul_precision("high")
         logger.info("Enabled TensorFloat32 for faster matrix multiplication")
 
+    # Log Gumbel-Softmax settings
+    if args.use_gumbel:
+        logger.info(
+            f"Using Gumbel-Softmax generation with temperature {args.gumbel_temperature}"
+        )
+        logger.info(
+            "Disabling torch.compile for Gumbel mode due to autoregressive generation"
+        )
+
     # Training arguments
     training_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -365,19 +523,24 @@ def main() -> None:
         # Other settings
         seed=args.seed,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_token_accuracy",
+        metric_for_best_model="eval_gen_accuracy"
+        if args.use_gumbel
+        else "eval_token_accuracy",
         greater_is_better=True,
-        torch_compile=True,
+        torch_compile=not args.use_gumbel,  # Disable compile for Gumbel mode due to .item() calls
     )
 
     # Create trainer
-    trainer = Trainer(
+    trainer = GumbelTrainer(
         model=model,
         args=training_args,
         train_dataset=train_loader.dataset,
         eval_dataset=val_loader.dataset,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
+        use_gumbel=args.use_gumbel,
+        gumbel_temperature=args.gumbel_temperature,
+        tokenizer=tokenizer,
     )
 
     # Save training configuration
@@ -386,6 +549,8 @@ def main() -> None:
         "model_parameters": model.count_parameters(),
         "vocab_size": tokenizer.vocab_size,
         "max_length": args.max_length,
+        "use_gumbel": args.use_gumbel,
+        "gumbel_temperature": args.gumbel_temperature,
         "training_args": training_args.to_dict(),
     }
 

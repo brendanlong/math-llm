@@ -86,6 +86,9 @@ python scripts/train.py --no-wandb
 
 # Resume from checkpoint
 python scripts/train.py --output-dir checkpoints/experiment1
+
+# Train with Gumbel-Softmax generation (no teacher forcing)
+python scripts/train.py --use-gumbel --gumbel-temperature 0.5
 ```
 
 #### Training Arguments
@@ -121,6 +124,11 @@ python scripts/train.py --output-dir checkpoints/experiment1
 - `--fp16`: Enable mixed precision training
 - `--no-wandb`: Disable Weights & Biases logging
 - `--seed`: Random seed for reproducibility - default: `42`
+
+**Gumbel-Softmax Training:**
+
+- `--use-gumbel`: Use Gumbel-Softmax for differentiable sequence generation instead of teacher forcing
+- `--gumbel-temperature`: Temperature for Gumbel-Softmax (lower = more discrete) - default: `1.0`
 
 #### Model Sizes
 

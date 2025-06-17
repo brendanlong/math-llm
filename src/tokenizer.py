@@ -102,3 +102,11 @@ class ArithmeticTokenizer:
             Decoded text string
         """
         return self.tokenizer.decode(token_ids)
+
+    def save_pretrained(self, save_directory: str) -> None:
+        """Save tokenizer to directory (HuggingFace compatibility).
+
+        Args:
+            save_directory: Directory to save tokenizer files
+        """
+        self.tokenizer.save_pretrained(save_directory)
