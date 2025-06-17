@@ -16,6 +16,8 @@ class DatasetMetadata(TypedDict):
     split_ratios: dict[str, float]
     generation_timestamp: str
     generation_version: str
+    longest_example_length: int
+    longest_example: str
 
 
 class DatasetDict(TypedDict):

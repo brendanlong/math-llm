@@ -141,6 +141,12 @@ def main():
     )
     print(f"Generated {len(examples)} examples")
 
+    # Find longest example
+    longest_example = max(examples, key=len)
+    longest_length = len(longest_example)
+    print(f"Longest example length: {longest_length} characters")
+    print(f"Longest example: {longest_example}")
+
     # Show some sample examples
     print("\nSample examples:")
     for i, example in enumerate(examples[:5]):
@@ -172,6 +178,8 @@ def main():
         },
         "generation_timestamp": datetime.now().isoformat(),
         "generation_version": "1.0.0",
+        "longest_example_length": longest_length,
+        "longest_example": longest_example,
     }
 
     # Save datasets
