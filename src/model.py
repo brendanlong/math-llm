@@ -43,43 +43,41 @@ def compute_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     return loss_fct(shift_logits_flat, shift_labels_flat)
 
 
-class PositionalEncoding(nn.Module):
-    """Sinusoidal positional encoding for transformer inputs."""
+def build_alibi_bias(
+    n_heads: int, seq_len: int, device: torch.device, dtype: torch.dtype = torch.float32
+) -> torch.Tensor:
+    """Build ALiBi (Attention with Linear Biases) position bias matrix.
 
-    pe: torch.Tensor
+    Args:
+        n_heads: Number of attention heads
+        seq_len: Sequence length
+        device: Device to create tensor on
+        dtype: Data type of the tensor
 
-    def __init__(self, d_model: int, max_len: int = 32):
-        """Initialize positional encoding.
+    Returns:
+        ALiBi bias tensor of shape (n_heads, seq_len, seq_len)
+    """
+    # Create position indices
+    positions = torch.arange(seq_len, device=device, dtype=dtype)
 
-        Args:
-            d_model: Model dimension
-            max_len: Maximum sequence length
-        """
-        super().__init__()
+    # Calculate slopes for each head
+    # For n heads, we want slopes that are geometric sequence of 2^(-8/n), 2^(-16/n), ...
+    slopes = torch.tensor(
+        [2 ** (-8 * (i + 1) / n_heads) for i in range(n_heads)],
+        device=device,
+        dtype=dtype,
+    )
 
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
-        )
+    # Create relative position matrix (j - i for all i, j)
+    # This gives negative values for future positions (j > i) and positive for past
+    relative_positions = positions.unsqueeze(1) - positions.unsqueeze(0)
 
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+    # Apply slopes to get biases for each head
+    # We want to penalize attention to future positions, so multiply by negative slopes
+    # Shape: (n_heads, seq_len, seq_len)
+    alibi = -slopes.unsqueeze(1).unsqueeze(2) * relative_positions.unsqueeze(0).abs()
 
-        self.register_buffer("pe", pe)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Add positional encoding to input embeddings.
-
-        Args:
-            x: Input tensor of shape (seq_len, batch_size, d_model)
-
-        Returns:
-            Tensor with positional encoding added
-        """
-        pe_slice = self.pe[: x.size(0), :]
-        return x + pe_slice
+    return alibi
 
 
 class TransformerBlock(nn.Module):
@@ -96,9 +94,16 @@ class TransformerBlock(nn.Module):
         """
         super().__init__()
 
-        self.self_attn = nn.MultiheadAttention(
-            d_model, n_heads, dropout=dropout, batch_first=True
-        )
+        self.n_heads = n_heads
+        self.d_model = d_model
+        self.head_dim = d_model // n_heads
+
+        # Use separate linear layers for Q, K, V to have more control
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+
         self.feed_forward = nn.Sequential(
             nn.Linear(d_model, d_ff),
             nn.ReLU(),
@@ -108,21 +113,66 @@ class TransformerBlock(nn.Module):
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
+        self.attn_dropout = nn.Dropout(dropout)
 
     def forward(
-        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        alibi_bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass through transformer block.
 
         Args:
             x: Input tensor of shape (batch_size, seq_len, d_model)
             mask: Optional attention mask
+            alibi_bias: Optional ALiBi bias tensor of shape (n_heads, seq_len, seq_len)
 
         Returns:
             Output tensor of same shape as input
         """
-        # Self-attention with residual connection
-        attn_out, _ = self.self_attn(x, x, x, attn_mask=mask)
+        batch_size, seq_len, _ = x.shape
+
+        # Compute Q, K, V
+        q = (
+            self.q_proj(x)
+            .reshape(batch_size, seq_len, self.n_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+        k = (
+            self.k_proj(x)
+            .reshape(batch_size, seq_len, self.n_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+        v = (
+            self.v_proj(x)
+            .reshape(batch_size, seq_len, self.n_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+
+        # Compute attention scores
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+
+        # Add ALiBi bias if provided
+        if alibi_bias is not None:
+            scores = scores + alibi_bias.unsqueeze(0)
+
+        # Apply mask if provided (for causal attention)
+        if mask is not None:
+            scores = scores + mask.unsqueeze(0).unsqueeze(0)
+
+        # Apply softmax and dropout
+        attn_weights = F.softmax(scores, dim=-1)
+        attn_weights = self.attn_dropout(attn_weights)
+
+        # Apply attention to values
+        attn_out = torch.matmul(attn_weights, v)
+
+        # Reshape and project output
+        attn_out = attn_out.transpose(1, 2).reshape(batch_size, seq_len, self.d_model)
+        attn_out = self.out_proj(attn_out)
+
+        # Residual connection and layer norm
         x = self.norm1(x + self.dropout(attn_out))
 
         # Feed-forward with residual connection
@@ -163,7 +213,7 @@ class ArithmeticModel(nn.Module):
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.pos_encoding = PositionalEncoding(d_model, max_seq_len)
+        self.n_heads = n_heads
 
         # Transformer layers
         self.layers = nn.ModuleList(
@@ -227,17 +277,17 @@ class ArithmeticModel(nn.Module):
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
         x = x * math.sqrt(self.d_model)  # Scale embeddings
 
-        # Positional encoding (convert to batch_first format)
-        x = x.transpose(0, 1)  # (seq_len, batch_size, d_model)
-        x = self.pos_encoding(x)
-        x = x.transpose(0, 1)  # (batch_size, seq_len, d_model)
-
         # Create causal mask
         causal_mask = self._get_causal_mask(seq_len).to(input_ids.device)
 
+        # Build ALiBi bias
+        alibi_bias = build_alibi_bias(
+            self.n_heads, seq_len, input_ids.device, dtype=x.dtype
+        )
+
         # Apply transformer layers
         for layer in self.layers:
-            x = layer(x, mask=causal_mask)
+            x = layer(x, mask=causal_mask, alibi_bias=alibi_bias)
 
         # Final layer norm and projection
         x = self.ln_f(x)
