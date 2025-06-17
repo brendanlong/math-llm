@@ -5,8 +5,8 @@ import torch
 from src.model import (
     MAX_SEQUENCE_LENGTH,
     ArithmeticModel,
-    PositionalEncoding,
     TransformerBlock,
+    build_alibi_bias,
     create_large_model,
     create_medium_model,
     create_small_model,
@@ -14,24 +14,24 @@ from src.model import (
 from src.tokenizer import VOCAB_SIZE, ArithmeticTokenizer
 
 
-class TestPositionalEncoding:
-    """Test positional encoding module."""
+class TestAliBi:
+    """Test ALiBi bias computation."""
 
-    def test_init(self):
-        """Test positional encoding initialization."""
-        pe = PositionalEncoding(d_model=256, max_len=32)
-        assert pe.pe.shape == (32, 1, 256)
+    def test_build_alibi_bias_basic(self):
+        """Test basic ALiBi bias functionality."""
+        n_heads = 4
+        seq_len = 8
+        device = torch.device("cpu")
 
-    def test_forward(self):
-        """Test positional encoding forward pass."""
-        pe = PositionalEncoding(d_model=256, max_len=32)
-        x = torch.randn(10, 2, 256)  # (seq_len, batch_size, d_model)
+        alibi_bias = build_alibi_bias(n_heads, seq_len, device)
 
-        output = pe(x)
-        assert output.shape == x.shape
+        assert alibi_bias.shape == (n_heads, seq_len, seq_len)
+        assert (alibi_bias <= 0).all()
 
-        # Check that positional encoding is added
-        assert not torch.equal(output, x)
+        # Diagonal should be zero
+        for h in range(n_heads):
+            diagonal = torch.diagonal(alibi_bias[h])
+            assert torch.allclose(diagonal, torch.zeros_like(diagonal))
 
 
 class TestTransformerBlock:
@@ -40,8 +40,9 @@ class TestTransformerBlock:
     def test_init(self):
         """Test transformer block initialization."""
         block = TransformerBlock(d_model=256, n_heads=4, d_ff=1024)
-        assert block.self_attn.embed_dim == 256
-        assert block.self_attn.num_heads == 4
+        assert block.d_model == 256
+        assert block.n_heads == 4
+        assert block.head_dim == 64
 
     def test_forward_shape(self):
         """Test transformer block forward pass shapes."""
@@ -51,14 +52,16 @@ class TestTransformerBlock:
         output = block(x)
         assert output.shape == x.shape
 
-    def test_forward_with_mask(self):
-        """Test transformer block with attention mask."""
+    def test_forward_with_mask_and_alibi(self):
+        """Test transformer block with attention mask and ALiBi bias."""
         block = TransformerBlock(d_model=256, n_heads=4, d_ff=1024)
         x = torch.randn(2, 10, 256)
         mask = torch.triu(torch.ones(10, 10), diagonal=1)
         mask = mask.masked_fill(mask == 1, float("-inf"))
 
-        output = block(x, mask=mask)
+        alibi_bias = build_alibi_bias(4, 10, x.device, x.dtype)
+
+        output = block(x, mask=mask, alibi_bias=alibi_bias)
         assert output.shape == x.shape
 
 
