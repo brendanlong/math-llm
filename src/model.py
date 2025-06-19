@@ -16,12 +16,70 @@ from .tokenizer import VOCAB, VOCAB_SIZE
 MAX_SEQUENCE_LENGTH = 1024
 
 
-def compute_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+def create_reasoning_mask(input_ids: torch.Tensor) -> torch.Tensor:
+    """Create mask for content between <think> and </think> tags (vectorized).
+
+    Assumes only one <think>...</think> pair per sequence for performance.
+
+    Args:
+        input_ids: Token IDs of shape (batch_size, seq_len)
+
+    Returns:
+        Boolean mask of shape (batch_size, seq_len) where True indicates
+        positions that should be masked (content between think tags,
+        excluding the tags themselves)
+    """
+    _, seq_len = input_ids.shape
+    think_start_id = VOCAB["<think>"]
+    think_end_id = VOCAB["</think>"]
+
+    # Find positions of <think> and </think> tokens
+    think_start_mask = input_ids == think_start_id
+    think_end_mask = input_ids == think_end_id
+
+    # Find first <think> position in each sequence (-1 if not found)
+    start_positions = think_start_mask.float().argmax(dim=1)  # (batch_size,)
+    has_start = think_start_mask.any(dim=1)  # (batch_size,)
+    start_positions = torch.where(has_start, start_positions, -1)
+
+    # Find first </think> position in each sequence (-1 if not found)
+    end_positions = think_end_mask.float().argmax(dim=1)  # (batch_size,)
+    has_end = think_end_mask.any(dim=1)  # (batch_size,)
+    end_positions = torch.where(has_end, end_positions, -1)
+
+    # Create position indices
+    positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(
+        0
+    )  # (1, seq_len)
+
+    # Create mask: True for positions between start+1 and end (exclusive)
+    # Mask is True where: start_pos < position < end_pos AND both start/end exist
+    valid_pairs = has_start & has_end & (start_positions < end_positions)
+
+    # Expand dimensions for broadcasting
+    start_expanded = start_positions.unsqueeze(1)  # (batch_size, 1)
+    end_expanded = end_positions.unsqueeze(1)  # (batch_size, 1)
+    valid_expanded = valid_pairs.unsqueeze(1)  # (batch_size, 1)
+
+    # Create the mask: position > start AND position < end AND valid_pair
+    mask = (positions > start_expanded) & (positions < end_expanded) & valid_expanded
+
+    return mask
+
+
+def compute_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    input_ids: Optional[torch.Tensor] = None,
+    mask_reasoning: bool = False,
+) -> torch.Tensor:
     """Compute completion-only loss (only on tokens after = sign).
 
     Args:
         logits: Model predictions of shape (batch_size, seq_len, vocab_size)
         labels: Target labels of shape (batch_size, seq_len)
+        input_ids: Input token IDs of shape (batch_size, seq_len), needed for reasoning mask
+        mask_reasoning: If True, mask reasoning content between <think> and </think>
 
     Returns:
         Computed loss tensor
@@ -35,11 +93,22 @@ def compute_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     shift_logits = shift_logits[:, :min_len, :]
     shift_labels = shift_labels[:, :min_len]
 
+    # Apply reasoning masking if requested
+    if mask_reasoning and input_ids is not None:
+        # Create reasoning mask from original input_ids (before shifting)
+        reasoning_mask = create_reasoning_mask(input_ids)
+
+        # Shift the reasoning mask to align with shifted labels
+        reasoning_mask_shifted = reasoning_mask[:, 1 : min_len + 1]
+
+        # Set masked positions to ignore index (-100)
+        shift_labels = shift_labels.masked_fill(reasoning_mask_shifted, -100)
+
     # Flatten tensors
     shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
     shift_labels_flat = shift_labels.view(-1)
 
-    loss_fct = nn.CrossEntropyLoss()
+    loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
     return loss_fct(shift_logits_flat, shift_labels_flat)
 
 
@@ -273,6 +342,7 @@ class ArithmeticModel(nn.Module):
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor],
         temperature: float = 1.0,
+        mask_reasoning: bool = False,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass with Gumbel-Softmax generation.
 
@@ -283,6 +353,7 @@ class ArithmeticModel(nn.Module):
             input_ids: Input token IDs
             labels: Full target sequence including the answer
             temperature: Gumbel-Softmax temperature
+            mask_reasoning: Whether to mask reasoning content between <think> and </think>
 
         Returns:
             Dictionary with loss and generated logits
@@ -370,7 +441,7 @@ class ArithmeticModel(nn.Module):
 
         # Compute loss using standard method
         if labels is not None:
-            loss = compute_loss(logits, labels)
+            loss = compute_loss(logits, labels, input_ids, mask_reasoning)
             return {"loss": loss, "logits": logits}
 
         return {"logits": logits}
@@ -382,6 +453,7 @@ class ArithmeticModel(nn.Module):
         labels: Optional[torch.Tensor] = None,
         use_gumbel: bool = False,
         gumbel_temperature: float = 1.0,
+        mask_reasoning: bool = False,
         **_kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
@@ -392,6 +464,7 @@ class ArithmeticModel(nn.Module):
             labels: Optional labels for computing loss
             use_gumbel: Whether to use Gumbel-Softmax for differentiable generation
             gumbel_temperature: Temperature for Gumbel-Softmax (lower = more discrete)
+            mask_reasoning: Whether to mask reasoning content between <think> and </think>
 
         Returns:
             If labels provided: dict with 'loss' and 'logits'
@@ -399,7 +472,9 @@ class ArithmeticModel(nn.Module):
         """
         if use_gumbel and labels is not None and self.training:
             # Generate full sequence using Gumbel-Softmax (only during training)
-            return self._forward_with_gumbel(input_ids, labels, gumbel_temperature)
+            return self._forward_with_gumbel(
+                input_ids, labels, gumbel_temperature, mask_reasoning
+            )
 
         _, seq_len = input_ids.shape
 
@@ -425,7 +500,7 @@ class ArithmeticModel(nn.Module):
 
         # Compute loss if labels are provided
         if labels is not None:
-            loss = compute_loss(logits, labels)
+            loss = compute_loss(logits, labels, input_ids, mask_reasoning)
             return {"loss": loss, "logits": logits}
 
         return logits

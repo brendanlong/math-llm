@@ -159,12 +159,14 @@ class GumbelTrainer(Trainer):
         self,
         use_gumbel: bool = False,
         gumbel_temperature: float = 1.0,
+        mask_reasoning: bool = False,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         assert self.model is not None, "Model must be provided to GumbelTrainer"
         self.use_gumbel = use_gumbel
         self.gumbel_temperature = gumbel_temperature
+        self.mask_reasoning = mask_reasoning
 
     def compute_loss(
         self,
@@ -178,6 +180,9 @@ class GumbelTrainer(Trainer):
         if self.use_gumbel and model.training:
             inputs["use_gumbel"] = torch.tensor(True)
             inputs["gumbel_temperature"] = torch.tensor(self.gumbel_temperature)
+
+        # Pass mask_reasoning parameter
+        inputs["mask_reasoning"] = torch.tensor(self.mask_reasoning)
 
         if return_outputs:
             outputs = model(**inputs)
@@ -415,6 +420,11 @@ def main() -> None:
         default=1.0,
         help="Temperature for Gumbel-Softmax (lower = more discrete)",
     )
+    parser.add_argument(
+        "--mask-reasoning",
+        action="store_true",
+        help="Mask reasoning content between <think> and </think> tags during training",
+    )
 
     args = parser.parse_args()
 
@@ -455,6 +465,8 @@ def main() -> None:
         wandb_name = f"arithmetic-{args.model_size}-{args.batch_size}batch-{args.learning_rate}lr"
         if args.use_gumbel:
             wandb_name += f"-gumbel{args.gumbel_temperature}"
+        if args.mask_reasoning:
+            wandb_name += "-masked"
 
         wandb.init(
             project="math-llm",
@@ -467,6 +479,7 @@ def main() -> None:
                 "seed": args.seed,
                 "use_gumbel": args.use_gumbel,
                 "gumbel_temperature": args.gumbel_temperature,
+                "mask_reasoning": args.mask_reasoning,
             },
             name=wandb_name,
         )
@@ -498,6 +511,10 @@ def main() -> None:
         logger.info(
             "Disabling torch.compile for Gumbel mode due to autoregressive generation"
         )
+
+    # Log reasoning masking settings
+    if args.mask_reasoning:
+        logger.info("Masking reasoning content between <think> and </think> tags")
 
     # Training arguments
     training_args = TrainingArguments(
@@ -544,6 +561,7 @@ def main() -> None:
         compute_metrics=compute_metrics,
         use_gumbel=args.use_gumbel,
         gumbel_temperature=args.gumbel_temperature,
+        mask_reasoning=args.mask_reasoning,
     )
 
     # Save training configuration
@@ -554,6 +572,7 @@ def main() -> None:
         "max_length": args.max_length,
         "use_gumbel": args.use_gumbel,
         "gumbel_temperature": args.gumbel_temperature,
+        "mask_reasoning": args.mask_reasoning,
         "training_args": training_args.to_dict(),
     }
 
