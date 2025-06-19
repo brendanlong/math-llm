@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from .tokenizer import VOCAB_SIZE
+from .tokenizer import VOCAB, VOCAB_SIZE
 
 MAX_SEQUENCE_LENGTH = 1024
 
@@ -287,7 +287,7 @@ class ArithmeticModel(nn.Module):
         Returns:
             Dictionary with loss and generated logits
         """
-        batch_size, seq_len = input_ids.shape
+        _, seq_len = input_ids.shape
 
         # Use input_ids as-is and compute logits for the full sequence
         # Token embeddings
@@ -296,46 +296,45 @@ class ArithmeticModel(nn.Module):
 
         # For the generation part, we'll replace some tokens with Gumbel-sampled ones
         # Find the equals sign to determine where generation should start
-        equals_token_id = 11  # From VOCAB mapping
+        equals_token_id = VOCAB["="]
 
         # Find positions of equals signs
-        equals_positions = (input_ids == equals_token_id).nonzero(as_tuple=True)
+        equals_mask = input_ids == equals_token_id
 
-        if len(equals_positions[0]) == 0:
-            # No equals sign found, fall back to regular forward pass
-            return self._regular_forward(input_ids, labels)
+        # Check that each sequence has at least one equals sign
+        equals_per_sequence = equals_mask.sum(dim=1)
+        assert (equals_per_sequence >= 1).all(), (
+            "Each sequence must have at least one equals sign"
+        )
 
-        # For each sequence, find the position after the equals sign
-        generation_starts = {}
-        for batch_idx, pos in zip(equals_positions[0], equals_positions[1]):
-            batch_idx_int = batch_idx.item()
-            if batch_idx_int not in generation_starts:
-                generation_starts[batch_idx_int] = pos.item() + 1
+        # Find the position of the FIRST equals sign in each sequence
+        # argmax on a boolean tensor gives the first True position
+        generation_starts = (
+            equals_mask.float().argmax(dim=1) + 1
+        )  # +1 to start after equals
 
         # Process sequences with differentiable generation after equals
-        modified_embeddings = x.clone()
         all_logits = []
 
-        for pos in range(seq_len):
-            # Get current embeddings up to this position
-            current_embeddings = modified_embeddings[:, : pos + 1, :]
+        # Initialize embeddings list for each position
+        embeddings_by_pos = [x[:, i, :] for i in range(seq_len)]
 
-            # Positional encoding
-            current_embeddings = current_embeddings.transpose(
-                0, 1
-            )  # (seq_len, batch_size, d_model)
-            current_embeddings = self.pos_encoding(current_embeddings)
-            current_embeddings = current_embeddings.transpose(
-                0, 1
-            )  # (batch_size, seq_len, d_model)
+        for pos in range(seq_len):
+            # Build current embeddings tensor from list
+            current_embeddings = torch.stack(embeddings_by_pos[: pos + 1], dim=1)
 
             # Create causal mask for current position
             causal_mask = self._get_causal_mask(pos + 1).to(input_ids.device)
 
+            # Build ALiBi bias for current position
+            alibi_bias = build_alibi_bias(
+                self.n_heads, pos + 1, input_ids.device, dtype=current_embeddings.dtype
+            )
+
             # Apply transformer layers
             hidden = current_embeddings
             for layer in self.layers:
-                hidden = layer(hidden, mask=causal_mask)
+                hidden = layer(hidden, mask=causal_mask, alibi_bias=alibi_bias)
 
             # Final layer norm and projection
             hidden = self.ln_f(hidden)
@@ -346,24 +345,25 @@ class ArithmeticModel(nn.Module):
             all_logits.append(current_logits)
 
             # For positions after equals sign, use Gumbel-Softmax
-            for batch_idx in range(batch_size):
-                if (
-                    batch_idx in generation_starts
-                    and pos >= generation_starts[batch_idx]
-                ):
-                    # Apply Gumbel-Softmax to get soft token probabilities
-                    soft_probs = self._gumbel_softmax(
-                        current_logits[batch_idx : batch_idx + 1],
-                        temperature=temperature,
-                        hard=False,
-                    )
+            should_generate = pos >= generation_starts  # Boolean mask (batch_size,)
 
-                    # Compute soft embedding for next position if not at end
-                    if pos + 1 < seq_len:
-                        soft_embedding = soft_probs @ self.token_embedding.weight
-                        modified_embeddings[batch_idx, pos + 1, :] = (
-                            soft_embedding.squeeze(0)
-                        )
+            if should_generate.any() and pos + 1 < seq_len:
+                # Apply Gumbel-Softmax to get soft token probabilities
+                soft_probs = self._gumbel_softmax(
+                    current_logits,
+                    temperature=temperature,
+                    hard=False,
+                )  # (batch_size, vocab_size)
+
+                # Compute soft embeddings for next position
+                soft_embeddings = (
+                    soft_probs @ self.token_embedding.weight
+                )  # (batch_size, d_model)
+
+                # Update embeddings for next position (non-in-place)
+                next_embeddings = embeddings_by_pos[pos + 1].clone()
+                next_embeddings[should_generate] = soft_embeddings[should_generate]
+                embeddings_by_pos[pos + 1] = next_embeddings
 
         # Stack all logits
         logits = torch.stack(all_logits, dim=1)  # (batch_size, seq_len, vocab_size)
@@ -374,39 +374,6 @@ class ArithmeticModel(nn.Module):
             return {"loss": loss, "logits": logits}
 
         return {"logits": logits}
-
-    def _regular_forward(
-        self, input_ids: torch.Tensor, labels: Optional[torch.Tensor]
-    ) -> dict[str, torch.Tensor] | torch.Tensor:
-        """Regular forward pass when no generation is needed."""
-        _, seq_len = input_ids.shape
-
-        # Token embeddings
-        x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        x = x * math.sqrt(self.d_model)  # Scale embeddings
-
-        # Positional encoding (convert to batch_first format)
-        x = x.transpose(0, 1)  # (seq_len, batch_size, d_model)
-        x = self.pos_encoding(x)
-        x = x.transpose(0, 1)  # (batch_size, seq_len, d_model)
-
-        # Create causal mask
-        causal_mask = self._get_causal_mask(seq_len).to(input_ids.device)
-
-        # Apply transformer layers
-        for layer in self.layers:
-            x = layer(x, mask=causal_mask)
-
-        # Final layer norm and projection
-        x = self.ln_f(x)
-        logits = self.lm_head(x)  # (batch_size, seq_len, vocab_size)
-
-        # Compute loss if labels are provided
-        if labels is not None:
-            loss = compute_loss(logits, labels)
-            return {"loss": loss, "logits": logits}
-
-        return logits
 
     def forward(
         self,

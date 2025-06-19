@@ -37,7 +37,8 @@ reportUnknownArgumentType = false
 
 [tool.pytest.ini_options]
 markers = [
-    "integration: marks tests as integration tests that require training (deselect with '-m \"not integration\"')",
+    "integration: marks tests as fast integration tests that require training (deselect with '-m \"not integration\"')",
+    "slow_integration: marks tests as slow integration tests that train to convergence (deselect with '-m \"not slow_integration\"')",
 ]
 # By default, exclude integration tests
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration and not slow_integration'"
