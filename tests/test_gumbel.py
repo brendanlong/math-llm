@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from src.model import ArithmeticModel, create_model
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import VOCAB, VOCAB_SIZE, tokenizer
 
 
 class TestGumbelSoftmax:
@@ -17,7 +17,7 @@ class TestGumbelSoftmax:
 
     @pytest.fixture
     def sample_data(
-        self, tokenizer: ArithmeticTokenizer
+        self,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Create sample input and labels."""
         text = "3+5="
@@ -32,7 +32,7 @@ class TestGumbelSoftmax:
             input_ids = torch.nn.functional.pad(
                 input_ids,
                 (0, max_len - input_ids.shape[1]),
-                value=tokenizer.end_token_id,
+                value=VOCAB["<end>"],
             )
         if labels.shape[1] < max_len:
             labels = torch.nn.functional.pad(
@@ -45,7 +45,6 @@ class TestGumbelSoftmax:
         self,
         model: ArithmeticModel,
         sample_data: tuple[torch.Tensor, torch.Tensor],
-        tokenizer: ArithmeticTokenizer,
     ) -> None:
         """Test regular forward pass works correctly."""
         input_ids, labels = sample_data
@@ -55,13 +54,12 @@ class TestGumbelSoftmax:
         assert "loss" in outputs
         assert "logits" in outputs
         assert torch.isfinite(outputs["loss"]).all()
-        assert outputs["logits"].shape == (1, input_ids.shape[1], tokenizer.vocab_size)
+        assert outputs["logits"].shape == (1, input_ids.shape[1], VOCAB_SIZE)
 
     def test_gumbel_forward_pass(
         self,
         model: ArithmeticModel,
         sample_data: tuple[torch.Tensor, torch.Tensor],
-        tokenizer: ArithmeticTokenizer,
     ) -> None:
         """Test Gumbel-Softmax forward pass works correctly."""
         input_ids, labels = sample_data
@@ -73,7 +71,7 @@ class TestGumbelSoftmax:
         assert "loss" in outputs
         assert "logits" in outputs
         assert torch.isfinite(outputs["loss"]).all()
-        assert outputs["logits"].shape == (1, input_ids.shape[1], tokenizer.vocab_size)
+        assert outputs["logits"].shape == (1, input_ids.shape[1], VOCAB_SIZE)
 
     @pytest.mark.parametrize("temperature", [0.1, 0.5, 1.0, 2.0])
     def test_gumbel_temperatures(

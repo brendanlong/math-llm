@@ -3,7 +3,7 @@
 import multiprocessing
 import random
 
-from .tokenizer import ArithmeticTokenizer
+from .tokenizer import tokenizer
 
 
 def reverse_operand(operand: int) -> str:
@@ -81,7 +81,7 @@ def generate_addition_examples(
 
     r = random.Random(seed)
     examples = []
-    tokenizer = ArithmeticTokenizer()
+
     cot_length = 20 * max_digits * max_operands
 
     for _ in range(num_examples):

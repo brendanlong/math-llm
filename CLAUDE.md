@@ -18,3 +18,7 @@ Use `raise NewException(...) from e` instead of logging and re-raising
 
 - When pyright complains about PyTorch Dataset not being Sized, use `cast(Sized, dataset)` from typing
 - Prefer Optional[x] over x | Optional
+
+## Code Structure
+
+- Don't do imports inside functions, always import at the top of the file

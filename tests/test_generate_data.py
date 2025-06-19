@@ -5,13 +5,15 @@ from src.generation import (
     generate_addition_examples_parallel,
     split_data,
 )
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import tokenizer
 
 
 class TestDataGeneration:
     """Tests for data generation functions."""
 
-    def test_example_validity(self, tokenizer: ArithmeticTokenizer):
+    def test_example_validity(
+        self,
+    ):
         """Test that generated examples are mathematically correct."""
         examples = generate_addition_examples(
             num_examples=10, max_digits=2, seed=42, max_operands=2

@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from .model import MAX_SEQUENCE_LENGTH
-from .tokenizer import ArithmeticTokenizer
+from .tokenizer import VOCAB, tokenizer
 from .types import DatasetDict
 
 
@@ -21,7 +21,6 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
     def __init__(
         self,
         data_path: str | Path,
-        tokenizer: ArithmeticTokenizer,
         max_length: Optional[int] = None,
     ):
         """Initialize dataset.
@@ -33,9 +32,8 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
                        If None, uses longest_example_length from metadata + 10
         """
         self.data_path = Path(data_path)
-        self.tokenizer = tokenizer
-        self.end_token_id = tokenizer.vocab["<end>"]
-        self.equals_token_id = tokenizer.vocab["="]
+        self.end_token_id = VOCAB["<end>"]
+        self.equals_token_id = VOCAB["="]
 
         # Load data
         with open(self.data_path, "r") as f:
@@ -69,7 +67,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         expression = self.data[idx]
 
         # Tokenize the entire expression
-        full_tokens = self.tokenizer.encode(expression)
+        full_tokens = tokenizer.encode(expression)
         original_length = len(full_tokens)
 
         # Convert to tensor and pad/truncate in one step
@@ -94,7 +92,6 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
 
 def create_dataloader(
     data_path: str | Path,
-    tokenizer: ArithmeticTokenizer,
     batch_size: int = 32,
     shuffle: bool = True,
     max_length: Optional[int] = None,
@@ -113,9 +110,7 @@ def create_dataloader(
     Returns:
         DataLoader instance ready for training/evaluation
     """
-    dataset = ArithmeticDataset(
-        data_path=data_path, tokenizer=tokenizer, max_length=max_length
-    )
+    dataset = ArithmeticDataset(data_path=data_path, max_length=max_length)
 
     return DataLoader(
         dataset,
@@ -128,7 +123,6 @@ def create_dataloader(
 
 def load_splits(
     data_dir: str | Path,
-    tokenizer: ArithmeticTokenizer,
     batch_size: int = 32,
     max_length: Optional[int] = None,
     num_workers: int = 0,
@@ -153,7 +147,6 @@ def load_splits(
 
     train_loader = create_dataloader(
         data_path=data_dir / "train.json",
-        tokenizer=tokenizer,
         batch_size=batch_size,
         shuffle=True,
         max_length=max_length,
@@ -162,7 +155,6 @@ def load_splits(
 
     val_loader = create_dataloader(
         data_path=data_dir / "val.json",
-        tokenizer=tokenizer,
         batch_size=batch_size,
         shuffle=False,
         max_length=max_length,
@@ -171,7 +163,6 @@ def load_splits(
 
     test_loader = create_dataloader(
         data_path=data_dir / "test.json",
-        tokenizer=tokenizer,
         batch_size=batch_size,
         shuffle=False,
         max_length=max_length,

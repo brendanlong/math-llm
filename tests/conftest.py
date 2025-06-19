@@ -2,10 +2,10 @@
 
 import pytest
 
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import tokenizer
 
 
 @pytest.fixture
-def tokenizer() -> ArithmeticTokenizer:
+def tokenizer_fixture():
     """Create a tokenizer instance for testing."""
-    return ArithmeticTokenizer()
+    return tokenizer

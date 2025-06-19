@@ -29,7 +29,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.data import ArithmeticDataset, load_splits
 from src.model import ArithmeticModel, create_model
-from src.tokenizer import VOCAB, ArithmeticTokenizer
+from src.tokenizer import VOCAB, VOCAB_SIZE
 
 
 def setup_logging() -> None:
@@ -159,14 +159,12 @@ class GumbelTrainer(Trainer):
         self,
         use_gumbel: bool = False,
         gumbel_temperature: float = 1.0,
-        tokenizer: Optional[ArithmeticTokenizer] = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         assert self.model is not None, "Model must be provided to GumbelTrainer"
         self.use_gumbel = use_gumbel
         self.gumbel_temperature = gumbel_temperature
-        self.tokenizer = tokenizer
 
     def compute_loss(
         self,
@@ -434,13 +432,11 @@ def main() -> None:
 
     # Initialize tokenizer
     logger.info("Initializing tokenizer")
-    tokenizer = ArithmeticTokenizer()
 
     # Load data
     logger.info(f"Loading data from {args.data_dir}")
     train_loader, val_loader, test_loader = load_splits(
         data_dir=args.data_dir,
-        tokenizer=tokenizer,
         batch_size=args.batch_size,
         max_length=args.max_length,
         num_workers=args.num_workers,
@@ -548,14 +544,13 @@ def main() -> None:
         compute_metrics=compute_metrics,
         use_gumbel=args.use_gumbel,
         gumbel_temperature=args.gumbel_temperature,
-        tokenizer=tokenizer,
     )
 
     # Save training configuration
     config = {
         "model_size": args.model_size,
         "model_parameters": model.count_parameters(),
-        "vocab_size": tokenizer.vocab_size,
+        "vocab_size": VOCAB_SIZE,
         "max_length": args.max_length,
         "use_gumbel": args.use_gumbel,
         "gumbel_temperature": args.gumbel_temperature,

@@ -13,7 +13,6 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data import create_dataloader
-from src.tokenizer import ArithmeticTokenizer
 
 
 class BenchmarkResult(TypedDict):
@@ -45,11 +44,9 @@ def benchmark_dataloader(
     Returns:
         Dictionary with benchmark results
     """
-    tokenizer = ArithmeticTokenizer()
 
     dataloader = create_dataloader(
         data_path=data_path,
-        tokenizer=tokenizer,
         batch_size=batch_size,
         shuffle=True,
     )

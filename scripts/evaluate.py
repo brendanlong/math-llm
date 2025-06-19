@@ -27,7 +27,7 @@ from src.model import (
     ModelSizeStr,
     create_model,
 )
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import VOCAB, tokenizer
 
 
 def remove_thinking_sections(text: str) -> str:
@@ -56,7 +56,7 @@ def remove_thinking_sections(text: str) -> str:
 
 
 def create_thinking_mask(
-    token_ids: torch.Tensor, tokenizer: ArithmeticTokenizer
+    token_ids: torch.Tensor,
 ) -> torch.Tensor:
     """Create a mask that excludes tokens inside thinking sections.
 
@@ -162,7 +162,6 @@ def load_model(checkpoint_path: Path, model_size: ModelSizeStr) -> ArithmeticMod
 def compute_exact_match_accuracy(
     model: ArithmeticModel,
     dataloader: DataLoader[dict[str, torch.Tensor]],
-    tokenizer: ArithmeticTokenizer,
     device: torch.device,
     max_new_tokens: int = 512,
 ) -> float:
@@ -208,7 +207,7 @@ def compute_exact_match_accuracy(
                         prompt_ids,
                         max_new_tokens=max_new_tokens,
                         temperature=0.1,  # Low temperature for deterministic output
-                        end_token_id=tokenizer.end_token_id,
+                        end_token_id=VOCAB["<end>"],
                     )
 
                     # Extract only the generated part
@@ -230,7 +229,6 @@ def compute_exact_match_accuracy(
 def compute_token_accuracy(
     model: ArithmeticModel,
     dataloader: DataLoader[dict[str, torch.Tensor]],
-    tokenizer: ArithmeticTokenizer,
     device: torch.device,
 ) -> float:
     """Compute token-level accuracy on teacher-forced predictions.
@@ -271,7 +269,7 @@ def compute_token_accuracy(
                 label_seq = shift_labels[i]
 
                 # Create thinking mask for this sequence
-                thinking_mask = create_thinking_mask(label_seq, tokenizer)
+                thinking_mask = create_thinking_mask(label_seq)
 
                 # Only include non-padding, non-thinking tokens
                 valid_mask = (label_seq != -100) & thinking_mask
@@ -292,7 +290,6 @@ def compute_token_accuracy(
 def evaluate_on_dataset(
     model: ArithmeticModel,
     data_path: Path,
-    tokenizer: ArithmeticTokenizer,
     device: torch.device,
     batch_size: int = 64,
     max_length: int = 128,
@@ -313,7 +310,6 @@ def evaluate_on_dataset(
     # Create dataloader
     dataloader = create_dataloader(
         data_path=data_path,
-        tokenizer=tokenizer,
         batch_size=batch_size,
         shuffle=False,
         max_length=max_length,
@@ -323,10 +319,8 @@ def evaluate_on_dataset(
     # Compute metrics
     logging.info(f"Evaluating on {len(cast(Sized, dataloader.dataset))} examples")
 
-    token_accuracy = compute_token_accuracy(model, dataloader, tokenizer, device)
-    exact_match_accuracy = compute_exact_match_accuracy(
-        model, dataloader, tokenizer, device
-    )
+    token_accuracy = compute_token_accuracy(model, dataloader, device)
+    exact_match_accuracy = compute_exact_match_accuracy(model, dataloader, device)
 
     return {
         "token_accuracy": token_accuracy,
@@ -410,7 +404,6 @@ def main() -> None:
     logging.info(f"Using device: {device}")
 
     # Initialize tokenizer
-    tokenizer = ArithmeticTokenizer()
 
     # Load model
     logging.info(f"Loading model from {args.checkpoint}")
@@ -428,7 +421,6 @@ def main() -> None:
     results = evaluate_on_dataset(
         model=model,
         data_path=data_path,
-        tokenizer=tokenizer,
         device=device,
         batch_size=args.batch_size,
         max_length=args.max_length,

@@ -26,7 +26,7 @@ from src.model import (
     ModelSizeStr,
     create_model,
 )
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import VOCAB, tokenizer
 
 
 def greedy_generate_with_probs(
@@ -296,7 +296,6 @@ def parse_thinking_tags(text: str) -> List[ThinkingNode]:
 def get_top_k_predictions(
     model: ArithmeticModel,
     input_ids: torch.Tensor,
-    tokenizer: ArithmeticTokenizer,
     k: int = 5,
 ) -> List[Tuple[str, float, int]]:
     """Get top-k predictions for next token with probabilities.
@@ -372,7 +371,6 @@ def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
 
 def interactive_session_with_probabilities(
     model: ArithmeticModel,
-    tokenizer: ArithmeticTokenizer,
     device: torch.device,
     max_new_tokens: int = 512,
 ) -> None:
@@ -427,7 +425,7 @@ def interactive_session_with_probabilities(
                     break
 
                 # Get top-k predictions with temperature=1.0 for probability display
-                predictions = get_top_k_predictions(model, input_tensor, tokenizer, k=5)
+                predictions = get_top_k_predictions(model, input_tensor, k=5)
 
                 # Display current state
                 print(f"\n📝 Current: {current_text}")
@@ -458,7 +456,7 @@ def interactive_session_with_probabilities(
                     print(f"   → Added: '{top_token}'")
 
                     # Check if we hit end token
-                    if predictions[0][2] == tokenizer.end_token_id:
+                    if predictions[0][2] == VOCAB["<end>"]:
                         print(f"\n✅ Complete: {current_text}")
                         break
                 else:
@@ -488,7 +486,6 @@ def interactive_session_with_probabilities(
 
 def interactive_session(
     model: ArithmeticModel,
-    tokenizer: ArithmeticTokenizer,
     device: torch.device,
     max_new_tokens: int = 512,
 ) -> None:
@@ -554,7 +551,7 @@ def interactive_session(
                     model,
                     input_tensor,
                     max_new_tokens=max_new_tokens,
-                    end_token_id=tokenizer.end_token_id,
+                    end_token_id=VOCAB["<end>"],
                 )
 
             # Check if we hit the token limit
@@ -562,10 +559,7 @@ def interactive_session(
             tokens_generated = final_length - initial_length
             last_token = generated_ids[0, -1].item()
 
-            if (
-                tokens_generated >= max_new_tokens
-                and last_token != tokenizer.end_token_id
-            ):
+            if tokens_generated >= max_new_tokens and last_token != VOCAB["<end>"]:
                 print(
                     f"⚠️  Warning: Hit token limit ({max_new_tokens} tokens) - generation may be incomplete"
                 )
@@ -688,7 +682,6 @@ def main() -> None:
         sys.exit(1)
 
     # Initialize tokenizer
-    tokenizer = ArithmeticTokenizer()
 
     # Load model
     logging.info(f"Loading {args.model_size} model from {args.checkpoint}")
@@ -706,14 +699,12 @@ def main() -> None:
     if args.mode == "probability":
         interactive_session_with_probabilities(
             model=model,
-            tokenizer=tokenizer,
             device=device,
             max_new_tokens=args.max_new_tokens,
         )
     else:
         interactive_session(
             model=model,
-            tokenizer=tokenizer,
             device=device,
             max_new_tokens=args.max_new_tokens,
         )

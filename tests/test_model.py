@@ -11,7 +11,7 @@ from src.model import (
     create_medium_model,
     create_small_model,
 )
-from src.tokenizer import VOCAB_SIZE, ArithmeticTokenizer
+from src.tokenizer import VOCAB, VOCAB_SIZE, tokenizer
 
 
 class TestAliBi:
@@ -95,15 +95,17 @@ class TestArithmeticModel:
         logits = model(input_ids)
         assert logits.shape == (2, 10, 13)
 
-    def test_forward_with_tokenizer(self, tokenizer: ArithmeticTokenizer):
+    def test_forward_with_tokenizer(
+        self,
+    ):
         """Test model forward pass with real tokenizer input."""
-        model = ArithmeticModel(vocab_size=tokenizer.vocab_size)
+        model = ArithmeticModel(vocab_size=VOCAB_SIZE)
 
         text = "3+5=8<end>"
         input_ids = torch.tensor([tokenizer.encode(text)])
 
         logits = model(input_ids)
-        expected_shape = (1, len(tokenizer.encode(text)), tokenizer.vocab_size)
+        expected_shape = (1, len(tokenizer.encode(text)), VOCAB_SIZE)
         assert logits.shape == expected_shape
 
     def test_causal_mask(self):
@@ -212,7 +214,9 @@ class TestModelFactories:
 class TestModelIntegration:
     """Integration tests with tokenizer."""
 
-    def test_model_tokenizer_compatibility(self, tokenizer: ArithmeticTokenizer):
+    def test_model_tokenizer_compatibility(
+        self,
+    ):
         """Test model works correctly with tokenizer."""
         model = create_small_model()
 
@@ -225,11 +229,11 @@ class TestModelIntegration:
 
             # Should not raise errors
             logits = model(input_ids)
-            assert logits.shape == (1, len(tokens), tokenizer.vocab_size)
+            assert logits.shape == (1, len(tokens), VOCAB_SIZE)
 
             # Test generation
             generated = model.generate(
-                input_ids, max_new_tokens=3, end_token_id=tokenizer.end_token_id
+                input_ids, max_new_tokens=3, end_token_id=VOCAB["<end>"]
             )
 
             # Should be decodable
@@ -237,7 +241,9 @@ class TestModelIntegration:
             assert isinstance(decoded, str)
             assert expr in decoded
 
-    def test_batch_processing(self, tokenizer: ArithmeticTokenizer):
+    def test_batch_processing(
+        self,
+    ):
         """Test model with batch of inputs."""
         model = create_small_model()
 
@@ -255,4 +261,4 @@ class TestModelIntegration:
 
         # Should handle batch correctly
         logits = model(input_ids)
-        assert logits.shape == (3, max_len, tokenizer.vocab_size)
+        assert logits.shape == (3, max_len, VOCAB_SIZE)

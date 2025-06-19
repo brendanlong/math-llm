@@ -4,7 +4,7 @@ from src.generation import (
     calculate_max_operand_digits,
     generate_addition_examples,
 )
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import tokenizer
 
 
 def test_calculate_max_operand_digits():
@@ -15,7 +15,7 @@ def test_calculate_max_operand_digits():
     assert calculate_max_operand_digits([0]) == 1
 
 
-def test_generate_addition_examples_fixed_length_cot(tokenizer: ArithmeticTokenizer):
+def test_generate_addition_examples_fixed_length_cot():
     """Test data generation with fixed-length CoT enabled."""
     examples = generate_addition_examples(
         num_examples=10,
@@ -36,7 +36,7 @@ def test_generate_addition_examples_fixed_length_cot(tokenizer: ArithmeticTokeni
             assert tokenizer.vocab["<noop>"] in tokens
 
 
-def test_noop_token_in_vocabulary(tokenizer: ArithmeticTokenizer):
+def test_noop_token_in_vocabulary():
     """Test that <noop> token is properly added to vocabulary."""
 
     # Check token is in vocabulary

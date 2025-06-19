@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import SequentialSampler
 
 from src.data import ArithmeticDataset, create_dataloader, load_splits
-from src.tokenizer import ArithmeticTokenizer
+from src.tokenizer import VOCAB_SIZE, tokenizer
 
 
 @pytest.fixture
@@ -26,14 +26,16 @@ def sample_data() -> list[str]:
 
 
 @pytest.fixture
-def temp_data_file(sample_data: list[str], tokenizer: ArithmeticTokenizer) -> Path:
+def temp_data_file(
+    sample_data: list[str],
+) -> Path:
     """Create a temporary JSON file with sample data in new format."""
     dataset = {
         "examples": sample_data,
         "metadata": {
             "split": "test",
             "num_examples": len(sample_data),
-            "vocab_size": tokenizer.vocab_size,
+            "vocab_size": VOCAB_SIZE,
             "format": "operand1+operand2=<think>...</think>result<end>",
         },
     }
@@ -49,18 +51,18 @@ class TestArithmeticDataset:
     def test_dataset_length(
         self,
         temp_data_file: Path,
-        tokenizer: ArithmeticTokenizer,
         sample_data: list[dict[str, str]],
     ) -> None:
         """Test that dataset returns correct length."""
-        dataset = ArithmeticDataset(temp_data_file, tokenizer, max_length=32)
+        dataset = ArithmeticDataset(temp_data_file, max_length=32)
         assert len(dataset) == len(sample_data)
 
     def test_dataset_getitem(
-        self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
+        self,
+        temp_data_file: Path,
     ) -> None:
         """Test that dataset returns correctly formatted items."""
-        dataset = ArithmeticDataset(temp_data_file, tokenizer, max_length=32)
+        dataset = ArithmeticDataset(temp_data_file, max_length=32)
         item = dataset[0]
 
         # Check return format
@@ -79,10 +81,11 @@ class TestArithmeticDataset:
         assert item["labels"].shape == (32,)
 
     def test_tokenization(
-        self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
+        self,
+        temp_data_file: Path,
     ) -> None:
         """Test that expressions are properly tokenized."""
-        dataset = ArithmeticDataset(temp_data_file, tokenizer, max_length=32)
+        dataset = ArithmeticDataset(temp_data_file, max_length=32)
         item = dataset[0]  # "3+5=8<end>"
 
         # Manually tokenize to compare
@@ -92,10 +95,11 @@ class TestArithmeticDataset:
         assert input_tokens == expected_tokens
 
     def test_padding(
-        self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
+        self,
+        temp_data_file: Path,
     ) -> None:
         """Test that short sequences are properly padded."""
-        dataset = ArithmeticDataset(temp_data_file, tokenizer, max_length=32)
+        dataset = ArithmeticDataset(temp_data_file, max_length=32)
         item = dataset[0]  # "3+5=8<end>" - should be much shorter than 32
 
         # Check that sequence is padded to max_length
@@ -110,10 +114,11 @@ class TestArithmeticDataset:
             assert item["input_ids"][i].item() == end_token_id
 
     def test_label_masking(
-        self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
+        self,
+        temp_data_file: Path,
     ) -> None:
         """Test that prompt tokens and padding are masked in labels for completion-style training."""
-        dataset = ArithmeticDataset(temp_data_file, tokenizer, max_length=32)
+        dataset = ArithmeticDataset(temp_data_file, max_length=32)
         item = dataset[0]  # "3+5=8<end>"
 
         # For completion-style training, we mask prompt tokens (everything before and including "=")
@@ -133,7 +138,9 @@ class TestArithmeticDataset:
         for i in range(original_length, 32):
             assert item["labels"][i].item() == -100
 
-    def test_truncation(self, tokenizer: ArithmeticTokenizer) -> None:
+    def test_truncation(
+        self,
+    ) -> None:
         """Test that long sequences are properly truncated."""
         # Create a very long expression
         long_expression = "1+2=3<end>" * 10  # Much longer than 32 tokens
@@ -146,7 +153,7 @@ class TestArithmeticDataset:
             json.dump(dataset, f)
             temp_file = Path(f.name)
 
-        dataset = ArithmeticDataset(temp_file, tokenizer, max_length=32)
+        dataset = ArithmeticDataset(temp_file, max_length=32)
         item = dataset[0]
 
         # Should be truncated to max_length
@@ -158,12 +165,12 @@ class TestDataLoader:
     """Tests for DataLoader creation functions."""
 
     def test_create_dataloader(
-        self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
+        self,
+        temp_data_file: Path,
     ) -> None:
         """Test creating a single DataLoader."""
         dataloader = create_dataloader(
             data_path=temp_data_file,
-            tokenizer=tokenizer,
             batch_size=2,
             shuffle=False,
             max_length=16,
@@ -183,7 +190,8 @@ class TestDataLoader:
         assert batch["labels"].shape == (2, 16)
 
     def test_load_splits(
-        self, sample_data: list[dict[str, str]], tokenizer: ArithmeticTokenizer
+        self,
+        sample_data: list[dict[str, str]],
     ) -> None:
         """Test loading train/val/test splits."""
         # Create temporary directory with split files
@@ -198,7 +206,7 @@ class TestDataLoader:
 
             # Load splits
             train_loader, val_loader, test_loader = load_splits(
-                data_dir=temp_path, tokenizer=tokenizer, batch_size=2, max_length=16
+                data_dir=temp_path, batch_size=2, max_length=16
             )
 
             # Test that all loaders work
@@ -212,12 +220,11 @@ class TestDataLoader:
                 assert batch["input_ids"].shape == (2, 16)
 
     def test_dataloader_cuda_pinning(
-        self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
+        self,
+        temp_data_file: Path,
     ) -> None:
         """Test that CUDA memory pinning is set correctly."""
-        dataloader = create_dataloader(
-            data_path=temp_data_file, tokenizer=tokenizer, batch_size=1
-        )
+        dataloader = create_dataloader(data_path=temp_data_file, batch_size=1)
 
         # pin_memory should be True if CUDA is available
         expected_pin_memory = torch.cuda.is_available()
@@ -228,10 +235,11 @@ class TestDataIntegration:
     """Integration tests for data loading with tokenizer."""
 
     def test_roundtrip_tokenization(
-        self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
+        self,
+        temp_data_file: Path,
     ) -> None:
         """Test that data can be tokenized and decoded back."""
-        dataset = ArithmeticDataset(temp_data_file, tokenizer, max_length=32)
+        dataset = ArithmeticDataset(temp_data_file, max_length=32)
         item = dataset[0]
 
         # Get the tokens up to the first natural end
@@ -255,11 +263,12 @@ class TestDataIntegration:
         assert decoded.endswith("<end>")
 
     def test_batch_consistency(
-        self, temp_data_file: Path, tokenizer: ArithmeticTokenizer
+        self,
+        temp_data_file: Path,
     ) -> None:
         """Test that batched data maintains consistency."""
         dataloader = create_dataloader(
-            data_path=temp_data_file, tokenizer=tokenizer, batch_size=3, shuffle=False
+            data_path=temp_data_file, batch_size=3, shuffle=False
         )
 
         batch = next(iter(dataloader))

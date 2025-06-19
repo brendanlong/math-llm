@@ -8,6 +8,7 @@ This tokenizer handles a vocabulary of 16 tokens:
 """
 
 import tempfile
+from typing import Literal
 
 from tokenizers import (
     Regex,
@@ -18,8 +19,28 @@ from tokenizers import (
 )
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
+# Type for valid vocabulary tokens
+VocabToken = Literal[
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",  # Digits
+    "+",
+    "=",  # Operators
+    "<end>",
+    "<think>",
+    "</think>",
+    "<noop>",  # Special tokens
+]
+
 # Vocabulary mapping for arithmetic expressions with reasoning
-VOCAB = {
+VOCAB: dict[VocabToken, int] = {
     "0": 0,
     "1": 1,
     "2": 2,
@@ -53,60 +74,10 @@ end_token_id = VOCAB["<end>"]
 with tempfile.NamedTemporaryFile() as f:
     tokenizer.save(f.name)
 
-    fast_tokenizer = PreTrainedTokenizerFast(
+    tokenizer = PreTrainedTokenizerFast(
         tokenizer_file=f.name,
         unk_token=None,
         pad_token="<end>",
         eos_token="<end>",
         clean_up_tokenization_spaces=False,
     )
-
-
-class ArithmeticTokenizer:
-    """Character-level tokenizer for arithmetic expressions."""
-
-    vocab = VOCAB
-
-    def __init__(self):
-        """Initialize the tokenizer with arithmetic vocabulary."""
-        self.tokenizer = fast_tokenizer
-
-        self.end_token_id = VOCAB["<end>"]
-
-    @property
-    def vocab_size(self) -> int:
-        """Return the vocabulary size."""
-        return VOCAB_SIZE
-
-    def encode(self, text: str) -> list[int]:
-        """Encode text to token IDs.
-
-        Args:
-            text: Input text (e.g., "3+5=8<end>")
-
-        Returns:
-            List of token IDs
-
-        Raises:
-            Exception: If text contains unknown characters
-        """
-        return self.tokenizer.encode(text)
-
-    def decode(self, token_ids: list[int]) -> str:
-        """Decode token ID(s) to text.
-
-        Args:
-            token_ids: List of token IDs
-
-        Returns:
-            Decoded text string
-        """
-        return self.tokenizer.decode(token_ids)
-
-    def save_pretrained(self, save_directory: str) -> None:
-        """Save tokenizer to directory (HuggingFace compatibility).
-
-        Args:
-            save_directory: Directory to save tokenizer files
-        """
-        self.tokenizer.save_pretrained(save_directory)
