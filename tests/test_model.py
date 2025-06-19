@@ -95,9 +95,8 @@ class TestArithmeticModel:
         logits = model(input_ids)
         assert logits.shape == (2, 10, 13)
 
-    def test_forward_with_tokenizer(self):
+    def test_forward_with_tokenizer(self, tokenizer: ArithmeticTokenizer):
         """Test model forward pass with real tokenizer input."""
-        tokenizer = ArithmeticTokenizer()
         model = ArithmeticModel(vocab_size=tokenizer.vocab_size)
 
         text = "3+5=8<end>"
@@ -213,9 +212,8 @@ class TestModelFactories:
 class TestModelIntegration:
     """Integration tests with tokenizer."""
 
-    def test_model_tokenizer_compatibility(self):
+    def test_model_tokenizer_compatibility(self, tokenizer: ArithmeticTokenizer):
         """Test model works correctly with tokenizer."""
-        tokenizer = ArithmeticTokenizer()
         model = create_small_model()
 
         # Test expressions
@@ -239,9 +237,8 @@ class TestModelIntegration:
             assert isinstance(decoded, str)
             assert expr in decoded
 
-    def test_batch_processing(self):
+    def test_batch_processing(self, tokenizer: ArithmeticTokenizer):
         """Test model with batch of inputs."""
-        tokenizer = ArithmeticTokenizer()
         model = create_small_model()
 
         expressions = ["1+2=", "3+4=", "5+6="]

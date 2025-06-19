@@ -15,7 +15,7 @@ def test_calculate_max_operand_digits():
     assert calculate_max_operand_digits([0]) == 1
 
 
-def test_generate_addition_examples_fixed_length_cot():
+def test_generate_addition_examples_fixed_length_cot(tokenizer: ArithmeticTokenizer):
     """Test data generation with fixed-length CoT enabled."""
     examples = generate_addition_examples(
         num_examples=10,
@@ -24,8 +24,6 @@ def test_generate_addition_examples_fixed_length_cot():
         max_operands=3,
         fixed_length_cot=True,
     )
-
-    tokenizer = ArithmeticTokenizer()
 
     # Check that examples with reasoning contain <noop> tokens
     cot_examples = [ex for ex in examples if "<think>" in ex]
@@ -38,9 +36,8 @@ def test_generate_addition_examples_fixed_length_cot():
             assert tokenizer.vocab["<noop>"] in tokens
 
 
-def test_noop_token_in_vocabulary():
+def test_noop_token_in_vocabulary(tokenizer: ArithmeticTokenizer):
     """Test that <noop> token is properly added to vocabulary."""
-    tokenizer = ArithmeticTokenizer()
 
     # Check token is in vocabulary
     assert "<noop>" in tokenizer.vocab

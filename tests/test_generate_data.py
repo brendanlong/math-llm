@@ -11,12 +11,11 @@ from src.tokenizer import ArithmeticTokenizer
 class TestDataGeneration:
     """Tests for data generation functions."""
 
-    def test_example_validity(self):
+    def test_example_validity(self, tokenizer: ArithmeticTokenizer):
         """Test that generated examples are mathematically correct."""
         examples = generate_addition_examples(
             num_examples=10, max_digits=2, seed=42, max_operands=2
         )
-        tokenizer = ArithmeticTokenizer()
 
         for example in examples:
             # Should be tokenizable

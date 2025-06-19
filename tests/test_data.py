@@ -13,12 +13,6 @@ from src.tokenizer import ArithmeticTokenizer
 
 
 @pytest.fixture
-def tokenizer() -> ArithmeticTokenizer:
-    """Create a tokenizer instance for testing."""
-    return ArithmeticTokenizer()
-
-
-@pytest.fixture
 def sample_data() -> list[str]:
     """Create sample arithmetic expressions for testing."""
     return [
@@ -32,9 +26,8 @@ def sample_data() -> list[str]:
 
 
 @pytest.fixture
-def temp_data_file(sample_data: list[str]) -> Path:
+def temp_data_file(sample_data: list[str], tokenizer: ArithmeticTokenizer) -> Path:
     """Create a temporary JSON file with sample data in new format."""
-    tokenizer = ArithmeticTokenizer()
     dataset = {
         "examples": sample_data,
         "metadata": {
