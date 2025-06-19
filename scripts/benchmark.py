@@ -11,7 +11,7 @@ import socket
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,45 @@ from src.training import (
     data_collator,
     setup_training_optimizations,
 )
+
+
+@dataclass
+class DataConfig:
+    """Configuration for benchmark data generation."""
+
+    max_digits: int
+    max_operands: int
+    name: str
+
+
+@dataclass
+class TrainingMode:
+    """Configuration for training mode."""
+
+    use_gumbel: bool
+    name: str
+    fp16: bool
+
+
+@dataclass
+class BenchmarkResult:
+    """Result from a single benchmark run."""
+
+    model_size: str
+    model_parameters: int
+    data_config: str
+    max_digits: int
+    max_operands: int
+    training_mode: str
+    use_gumbel: bool
+    fp16: bool
+    optimal_batch_size: int | None
+    optimal_iterations_per_second: float
+    optimal_samples_per_second: float
+    baseline_batch_size: int
+    baseline_samples_per_second: float | None
+    speedup: float | None
+    avg_sequence_length: float
 
 
 def setup_logging() -> None:
@@ -210,7 +249,7 @@ def benchmark_training_step(
     return iterations_per_second, samples_per_second
 
 
-def run_benchmark() -> list[dict[str, Any]]:
+def run_benchmark() -> list[BenchmarkResult]:
     """Run comprehensive benchmark across all configurations."""
     logger = logging.getLogger(__name__)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -225,13 +264,13 @@ def run_benchmark() -> list[dict[str, Any]]:
         "small",
     ]  # Only run on small models for speed , "medium", "large"]
     data_configs = [
-        {"max_digits": 1, "max_operands": 2, "name": "1d_2op"},
-        {"max_digits": 2, "max_operands": 4, "name": "2d_4op"},
-        {"max_digits": 5, "max_operands": 5, "name": "5d_5op"},
+        DataConfig(max_digits=1, max_operands=2, name="1d_2op"),
+        DataConfig(max_digits=2, max_operands=4, name="2d_4op"),
+        DataConfig(max_digits=5, max_operands=5, name="5d_5op"),
     ]
     training_modes = [
-        {"use_gumbel": False, "name": "normal", "fp16": False},
-        {"use_gumbel": True, "name": "gumbel", "fp16": False},
+        TrainingMode(use_gumbel=False, name="normal", fp16=False),
+        TrainingMode(use_gumbel=True, name="gumbel", fp16=False),
     ]
 
     # Batch sizes to try in descending order
@@ -241,12 +280,12 @@ def run_benchmark() -> list[dict[str, Any]]:
     results = []
 
     for data_config in data_configs:
-        logger.info(f"Data config: {data_config['name']}")
+        logger.info(f"Data config: {data_config.name}")
 
         # Generate benchmark data once per data config
         examples = generate_benchmark_data(
-            max_digits=int(data_config["max_digits"]),
-            max_operands=int(data_config["max_operands"]),
+            max_digits=data_config.max_digits,
+            max_operands=data_config.max_operands,
             num_examples=500,  # Small dataset for speed
         )
         max_length = max(len(example) for example in examples)
@@ -260,7 +299,7 @@ def run_benchmark() -> list[dict[str, Any]]:
             param_count = model.count_parameters()
 
             for training_mode in training_modes:
-                logger.info(f"    Mode: {training_mode['name']}")
+                logger.info(f"    Mode: {training_mode.name}")
 
                 # Find optimal batch size by starting large and working down
                 optimal_batch_size = None
@@ -280,9 +319,9 @@ def run_benchmark() -> list[dict[str, Any]]:
                         model=model,
                         dataloader=dataloader,
                         device=device,
-                        use_gumbel=bool(training_mode["use_gumbel"]),
+                        use_gumbel=training_mode.use_gumbel,
                         num_steps=num_benchmark_steps,
-                        fp16=bool(training_mode["fp16"]),
+                        fp16=training_mode.fp16,
                     )
 
                     baseline_result = {
@@ -311,9 +350,9 @@ def run_benchmark() -> list[dict[str, Any]]:
                             model=model,
                             dataloader=dataloader,
                             device=device,
-                            use_gumbel=bool(training_mode["use_gumbel"]),
+                            use_gumbel=training_mode.use_gumbel,
                             num_steps=num_benchmark_steps,
-                            fp16=bool(training_mode["fp16"]),
+                            fp16=training_mode.fp16,
                         )
 
                         logger.info(
@@ -340,40 +379,40 @@ def run_benchmark() -> list[dict[str, Any]]:
 
                 # Record the best result
                 if optimal_result:
-                    result = {
-                        "model_size": model_size,
-                        "model_parameters": param_count,
-                        "data_config": data_config["name"],
-                        "max_digits": data_config["max_digits"],
-                        "max_operands": data_config["max_operands"],
-                        "training_mode": training_mode["name"],
-                        "use_gumbel": training_mode["use_gumbel"],
-                        "fp16": training_mode["fp16"],
-                        "optimal_batch_size": optimal_batch_size,
-                        "optimal_iterations_per_second": round(
+                    result = BenchmarkResult(
+                        model_size=model_size,
+                        model_parameters=param_count,
+                        data_config=data_config.name,
+                        max_digits=data_config.max_digits,
+                        max_operands=data_config.max_operands,
+                        training_mode=training_mode.name,
+                        use_gumbel=training_mode.use_gumbel,
+                        fp16=training_mode.fp16,
+                        optimal_batch_size=optimal_batch_size,
+                        optimal_iterations_per_second=round(
                             optimal_result["iterations_per_second"], 2
                         ),
-                        "optimal_samples_per_second": round(
+                        optimal_samples_per_second=round(
                             optimal_result["samples_per_second"], 2
                         ),
-                        "baseline_batch_size": 1,
-                        "baseline_samples_per_second": round(
+                        baseline_batch_size=1,
+                        baseline_samples_per_second=round(
                             baseline_result["samples_per_second"], 2
                         )
                         if baseline_result
                         else None,
-                        "speedup": round(
+                        speedup=round(
                             optimal_result["samples_per_second"]
                             / baseline_result["samples_per_second"],
                             2,
                         )
                         if baseline_result
                         else None,
-                        "avg_sequence_length": round(
+                        avg_sequence_length=round(
                             sum(len(tokenizer.encode(ex)) for ex in examples[:50]) / 50,
                             1,
                         ),
-                    }
+                    )
                     results.append(result)
 
                     logger.info(
@@ -469,23 +508,25 @@ def get_system_info() -> SystemInfo:
     )
 
 
-def save_results(results: list[dict[str, Any]], output_dir: str) -> None:
+def save_results(results: list[BenchmarkResult], output_dir: str) -> None:
     """Save benchmark results to JSON, CSV, and Markdown files."""
     os.makedirs(output_dir, exist_ok=True)
 
     # Save JSON
     json_path = Path(output_dir) / "benchmark_results.json"
     with open(json_path, "w") as f:
-        json.dump(results, f, indent=2)
+        # Convert dataclasses to dicts for JSON serialization
+        results_dict = [asdict(result) for result in results]
+        json.dump(results_dict, f, indent=2)
 
     # Save CSV
     csv_path = Path(output_dir) / "benchmark_results.csv"
     if results:
-        fieldnames = results[0].keys()
+        fieldnames = asdict(results[0]).keys()
         with open(csv_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(results)
+            writer.writerows([asdict(result) for result in results])
 
     # Save Markdown report
     md_path = Path(output_dir) / "benchmark_report.md"
@@ -494,7 +535,7 @@ def save_results(results: list[dict[str, Any]], output_dir: str) -> None:
     print(f"Results saved to {json_path}, {csv_path}, and {md_path}")
 
 
-def write_markdown_report(results: list[dict[str, Any]], output_path: Path) -> None:
+def write_markdown_report(results: list[BenchmarkResult], output_path: Path) -> None:
     """Write a comprehensive markdown report of benchmark results."""
     system_info = get_system_info()
 
@@ -521,23 +562,23 @@ def write_markdown_report(results: list[dict[str, Any]], output_path: Path) -> N
         # Executive Summary
         f.write("## Executive Summary\n\n")
         if results:
-            best_overall = max(results, key=lambda x: x["optimal_samples_per_second"])
+            best_overall = max(results, key=lambda x: x.optimal_samples_per_second)
             f.write(
-                f"- **Best Performance**: {best_overall['optimal_samples_per_second']:.1f} samples/s\n"
+                f"- **Best Performance**: {best_overall.optimal_samples_per_second:.1f} samples/s\n"
             )
             f.write(
-                f"- **Best Configuration**: {best_overall['model_size']} model, {best_overall['data_config']} dataset, {best_overall['training_mode']} mode\n"
+                f"- **Best Configuration**: {best_overall.model_size} model, {best_overall.data_config} dataset, {best_overall.training_mode} mode\n"
             )
-            f.write(f"- **Optimal Batch Size**: {best_overall['optimal_batch_size']}\n")
-            if best_overall.get("speedup"):
-                f.write(f"- **Speedup vs Batch=1**: {best_overall['speedup']:.2f}x\n")
+            f.write(f"- **Optimal Batch Size**: {best_overall.optimal_batch_size}\n")
+            if best_overall.speedup:
+                f.write(f"- **Speedup vs Batch=1**: {best_overall.speedup:.2f}x\n")
         f.write(f"- **Total Configurations Tested**: {len(results)}\n\n")
 
         # Detailed Results by Dataset
-        data_configs = sorted(set(result["data_config"] for result in results))
+        data_configs = sorted(set(result.data_config for result in results))
 
         for data_config in data_configs:
-            dataset_results = [r for r in results if r["data_config"] == data_config]
+            dataset_results = [r for r in results if r.data_config == data_config]
             if not dataset_results:
                 continue
 
@@ -545,10 +586,10 @@ def write_markdown_report(results: list[dict[str, Any]], output_path: Path) -> N
 
             # Dataset info
             sample_result = dataset_results[0]
-            f.write(f"- **Max Digits**: {sample_result['max_digits']}\n")
-            f.write(f"- **Max Operands**: {sample_result['max_operands']}\n")
+            f.write(f"- **Max Digits**: {sample_result.max_digits}\n")
+            f.write(f"- **Max Operands**: {sample_result.max_operands}\n")
             f.write(
-                f"- **Average Sequence Length**: {sample_result['avg_sequence_length']:.1f} tokens\n\n"
+                f"- **Average Sequence Length**: {sample_result.avg_sequence_length:.1f} tokens\n\n"
             )
 
             # Results table
@@ -562,20 +603,18 @@ def write_markdown_report(results: list[dict[str, Any]], output_path: Path) -> N
             model_sizes = ["xsmall", "small", "medium", "large"]
             for model_size in model_sizes:
                 model_results = [
-                    r for r in dataset_results if r["model_size"] == model_size
+                    r for r in dataset_results if r.model_size == model_size
                 ]
-                for result in sorted(model_results, key=lambda x: x["training_mode"]):
-                    speedup_str = (
-                        f"{result['speedup']:.2f}x" if result.get("speedup") else "N/A"
-                    )
+                for result in sorted(model_results, key=lambda x: x.training_mode):
+                    speedup_str = f"{result.speedup:.2f}x" if result.speedup else "N/A"
                     baseline_str = (
-                        f"{result['baseline_samples_per_second']:.1f}"
-                        if result.get("baseline_samples_per_second")
+                        f"{result.baseline_samples_per_second:.1f}"
+                        if result.baseline_samples_per_second
                         else "N/A"
                     )
 
                     f.write(
-                        f"| {result['model_size']} | {result['training_mode']} | {result['model_parameters']:,} | {result['optimal_batch_size']} | {result['optimal_samples_per_second']:.1f} | {baseline_str} | {speedup_str} |\n"
+                        f"| {result.model_size} | {result.training_mode} | {result.model_parameters:,} | {result.optimal_batch_size} | {result.optimal_samples_per_second:.1f} | {baseline_str} | {speedup_str} |\n"
                     )
 
             f.write("\n")
@@ -587,32 +626,32 @@ def write_markdown_report(results: list[dict[str, Any]], output_path: Path) -> N
         f.write("### Top Performers by Model Size\n\n")
         model_sizes = ["xsmall", "small", "medium", "large"]
         for model_size in model_sizes:
-            model_results = [r for r in results if r["model_size"] == model_size]
+            model_results = [r for r in results if r.model_size == model_size]
             if model_results:
-                best = max(model_results, key=lambda x: x["optimal_samples_per_second"])
+                best = max(model_results, key=lambda x: x.optimal_samples_per_second)
                 f.write(
-                    f"**{model_size.upper()}** ({best['model_parameters']:,} parameters):\n"
+                    f"**{model_size.upper()}** ({best.model_parameters:,} parameters):\n"
                 )
                 f.write(
-                    f"- Best performance: {best['optimal_samples_per_second']:.1f} samples/s\n"
+                    f"- Best performance: {best.optimal_samples_per_second:.1f} samples/s\n"
                 )
                 f.write(
-                    f"- Configuration: {best['data_config']} dataset, {best['training_mode']} mode, batch size {best['optimal_batch_size']}\n"
+                    f"- Configuration: {best.data_config} dataset, {best.training_mode} mode, batch size {best.optimal_batch_size}\n"
                 )
-                if best.get("speedup"):
-                    f.write(f"- Speedup vs batch=1: {best['speedup']:.2f}x\n")
+                if best.speedup:
+                    f.write(f"- Speedup vs batch=1: {best.speedup:.2f}x\n")
                 f.write("\n")
 
         # Training mode comparison
         f.write("### Training Mode Comparison\n\n")
-        modes = sorted(set(result["training_mode"] for result in results))
+        modes = sorted(set(result.training_mode for result in results))
         for mode in modes:
-            mode_results = [r for r in results if r["training_mode"] == mode]
+            mode_results = [r for r in results if r.training_mode == mode]
             if mode_results:
                 avg_perf = sum(
-                    r["optimal_samples_per_second"] for r in mode_results
+                    r.optimal_samples_per_second for r in mode_results
                 ) / len(mode_results)
-                best_perf = max(r["optimal_samples_per_second"] for r in mode_results)
+                best_perf = max(r.optimal_samples_per_second for r in mode_results)
                 f.write(f"**{mode.upper()} Mode**:\n")
                 f.write(f"- Average performance: {avg_perf:.1f} samples/s\n")
                 f.write(f"- Best performance: {best_perf:.1f} samples/s\n")
@@ -622,18 +661,16 @@ def write_markdown_report(results: list[dict[str, Any]], output_path: Path) -> N
         f.write("### Batch Size Impact\n\n")
         batch_sizes = sorted(
             set(
-                result["optimal_batch_size"]
+                result.optimal_batch_size
                 for result in results
-                if result["optimal_batch_size"]
+                if result.optimal_batch_size
             )
         )
         for batch_size in batch_sizes:
-            batch_results = [
-                r for r in results if r["optimal_batch_size"] == batch_size
-            ]
+            batch_results = [r for r in results if r.optimal_batch_size == batch_size]
             if batch_results:
                 avg_perf = sum(
-                    r["optimal_samples_per_second"] for r in batch_results
+                    r.optimal_samples_per_second for r in batch_results
                 ) / len(batch_results)
                 f.write(
                     f"- **Batch size {batch_size}**: {avg_perf:.1f} samples/s average ({len(batch_results)} configs)\n"
@@ -645,14 +682,14 @@ def write_markdown_report(results: list[dict[str, Any]], output_path: Path) -> N
         )
 
 
-def print_summary(results: list[dict[str, Any]]) -> None:
+def print_summary(results: list[BenchmarkResult]) -> None:
     """Print a summary of benchmark results."""
     print("\n" + "=" * 80)
     print("BENCHMARK RESULTS SUMMARY")
     print("=" * 80)
 
     # Group by data config for cleaner display
-    data_configs = sorted(set(result["data_config"] for result in results))
+    data_configs = sorted(set(result.data_config for result in results))
     model_sizes = ["xsmall", "small", "medium", "large"]
 
     for data_config in data_configs:
@@ -671,23 +708,21 @@ def print_summary(results: list[dict[str, Any]]) -> None:
             model_results = [
                 r
                 for r in results
-                if r["model_size"] == model_size and r["data_config"] == data_config
+                if r.model_size == model_size and r.data_config == data_config
             ]
 
-            for result in sorted(model_results, key=lambda x: x["training_mode"]):
-                speedup_str = (
-                    f"{result['speedup']:.2f}x" if result.get("speedup") else "N/A"
-                )
+            for result in sorted(model_results, key=lambda x: x.training_mode):
+                speedup_str = f"{result.speedup:.2f}x" if result.speedup else "N/A"
                 baseline_str = (
-                    f"{result['baseline_samples_per_second']:.1f}"
-                    if result.get("baseline_samples_per_second")
+                    f"{result.baseline_samples_per_second:.1f}"
+                    if result.baseline_samples_per_second
                     else "N/A"
                 )
 
                 print(
-                    f"{model_size:<8} {result['training_mode']:<10} {result['optimal_batch_size']:<8} "
-                    f"{result['optimal_samples_per_second']:<12.1f} {baseline_str:<12} "
-                    f"{speedup_str:<8} {result['avg_sequence_length']:<8.1f}"
+                    f"{model_size:<8} {result.training_mode:<10} {result.optimal_batch_size:<8} "
+                    f"{result.optimal_samples_per_second:<12.1f} {baseline_str:<12} "
+                    f"{speedup_str:<8} {result.avg_sequence_length:<8.1f}"
                 )
 
     print("\n" + "=" * 80)
@@ -697,17 +732,17 @@ def print_summary(results: list[dict[str, Any]]) -> None:
     print("=" * 80)
 
     for model_size in model_sizes:
-        model_results = [r for r in results if r["model_size"] == model_size]
+        model_results = [r for r in results if r.model_size == model_size]
         if model_results:
             # Find best result by samples/second
-            best = max(model_results, key=lambda x: x["optimal_samples_per_second"])
-            print(f"\n{model_size.upper()} ({best['model_parameters']:,} params):")
+            best = max(model_results, key=lambda x: x.optimal_samples_per_second)
+            print(f"\n{model_size.upper()} ({best.model_parameters:,} params):")
             print(
-                f"  Best config: {best['data_config']} / {best['training_mode']} / batch={best['optimal_batch_size']}"
+                f"  Best config: {best.data_config} / {best.training_mode} / batch={best.optimal_batch_size}"
             )
-            print(f"  Performance: {best['optimal_samples_per_second']:.1f} samples/s")
-            if best.get("speedup"):
-                print(f"  Speedup vs batch=1: {best['speedup']:.2f}x")
+            print(f"  Performance: {best.optimal_samples_per_second:.1f} samples/s")
+            if best.speedup:
+                print(f"  Speedup vs batch=1: {best.speedup:.2f}x")
 
     print("\n" + "=" * 80)
 
