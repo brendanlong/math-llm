@@ -58,6 +58,7 @@ IMPORTANT: Make sure to update TODO.md before checking anything in!
 ### Common Type Issues
 
 - When pyright complains about PyTorch Dataset not being Sized, use `cast(Sized, dataset)` from typing
+- Prefer Optional[x] over x | Optional
 
 ## Project Goals
 
