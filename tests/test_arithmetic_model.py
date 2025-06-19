@@ -49,26 +49,6 @@ class TestArithmeticModel:
         expected_shape = (1, len(tokenizer.encode(text)), VOCAB_SIZE)
         assert logits.shape == expected_shape
 
-    def test_causal_mask(self):
-        """Test causal mask generation."""
-        model = ArithmeticModel()
-        mask = model._get_causal_mask(5)  # type: ignore[reportPrivateUsage]
-
-        # Check shape
-        assert mask.shape == (5, 5)
-
-        # Check that it's upper triangular with -inf above diagonal
-        expected = torch.tensor(
-            [
-                [0.0, float("-inf"), float("-inf"), float("-inf"), float("-inf")],
-                [0.0, 0.0, float("-inf"), float("-inf"), float("-inf")],
-                [0.0, 0.0, 0.0, float("-inf"), float("-inf")],
-                [0.0, 0.0, 0.0, 0.0, float("-inf")],
-                [0.0, 0.0, 0.0, 0.0, 0.0],
-            ]
-        )
-        assert torch.equal(mask, expected)
-
     def test_generate_shape(self):
         """Test generation output shape."""
         model = ArithmeticModel(vocab_size=13)

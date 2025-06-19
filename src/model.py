@@ -187,15 +187,13 @@ class TransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
-        alibi_bias: Optional[torch.Tensor] = None,
+        alibi_bias: torch.Tensor,
     ) -> torch.Tensor:
         """Forward pass through transformer block.
 
         Args:
             x: Input tensor of shape (batch_size, seq_len, d_model)
-            mask: Optional attention mask
-            alibi_bias: Optional ALiBi bias tensor of shape (n_heads, seq_len, seq_len)
+            alibi_bias: ALiBi bias tensor of shape (n_heads, seq_len, seq_len)
 
         Returns:
             Output tensor of same shape as input
@@ -219,23 +217,32 @@ class TransformerBlock(nn.Module):
             .transpose(1, 2)
         )
 
-        # Compute attention scores
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        # Create causal mask
+        causal_mask = torch.triu(
+            torch.ones(seq_len, seq_len, device=x.device), diagonal=1
+        )
+        causal_mask = causal_mask.masked_fill(causal_mask == 1, float("-inf"))
 
-        # Add ALiBi bias if provided
-        if alibi_bias is not None:
-            scores = scores + alibi_bias.unsqueeze(0)
+        # Combine ALiBi bias with causal mask
+        # ALiBi bias shape: (n_heads, seq_len, seq_len) -> (batch_size, n_heads, seq_len, seq_len)
+        attn_mask = alibi_bias.unsqueeze(0).expand(batch_size, -1, -1, -1)
+        # Causal mask shape: (seq_len, seq_len) -> (batch_size, n_heads, seq_len, seq_len)
+        causal_mask = (
+            causal_mask.unsqueeze(0)
+            .unsqueeze(0)
+            .expand(batch_size, self.n_heads, -1, -1)
+        )
+        attn_mask = attn_mask + causal_mask
 
-        # Apply mask if provided (for causal attention)
-        if mask is not None:
-            scores = scores + mask.unsqueeze(0).unsqueeze(0)
-
-        # Apply softmax and dropout
-        attn_weights = F.softmax(scores, dim=-1)
-        attn_weights = self.attn_dropout(attn_weights)
-
-        # Apply attention to values
-        attn_out = torch.matmul(attn_weights, v)
+        # Use optimized scaled dot-product attention
+        attn_out = F.scaled_dot_product_attention(
+            query=q,
+            key=k,
+            value=v,
+            attn_mask=attn_mask,
+            dropout_p=self.attn_dropout.p if self.training else 0.0,
+            is_causal=False,  # Always False since we're using explicit mask with ALiBi
+        )
 
         # Reshape and project output
         attn_out = attn_out.transpose(1, 2).reshape(batch_size, seq_len, self.d_model)
@@ -309,19 +316,6 @@ class ArithmeticModel(nn.Module):
             torch.nn.init.zeros_(module.bias)
             torch.nn.init.ones_(module.weight)
 
-    def _get_causal_mask(self, seq_len: int) -> torch.Tensor:
-        """Create causal (lower triangular) attention mask.
-
-        Args:
-            seq_len: Sequence length
-
-        Returns:
-            Causal mask tensor
-        """
-        mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1)
-        mask = mask.masked_fill(mask == 1, float("-inf"))
-        return mask
-
     def _gumbel_softmax(
         self, logits: torch.Tensor, temperature: float = 1.0, hard: bool = False
     ) -> torch.Tensor:
@@ -394,9 +388,6 @@ class ArithmeticModel(nn.Module):
             # Build current embeddings tensor from list
             current_embeddings = torch.stack(embeddings_by_pos[: pos + 1], dim=1)
 
-            # Create causal mask for current position
-            causal_mask = self._get_causal_mask(pos + 1).to(input_ids.device)
-
             # Build ALiBi bias for current position
             alibi_bias = build_alibi_bias(
                 self.n_heads, pos + 1, input_ids.device, dtype=current_embeddings.dtype
@@ -405,7 +396,7 @@ class ArithmeticModel(nn.Module):
             # Apply transformer layers
             hidden = current_embeddings
             for layer in self.layers:
-                hidden = layer(hidden, mask=causal_mask, alibi_bias=alibi_bias)
+                hidden = layer(hidden, alibi_bias=alibi_bias)
 
             # Final layer norm and projection
             hidden = self.ln_f(hidden)
@@ -482,9 +473,6 @@ class ArithmeticModel(nn.Module):
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
         x = x * math.sqrt(self.d_model)  # Scale embeddings
 
-        # Create causal mask
-        causal_mask = self._get_causal_mask(seq_len).to(input_ids.device)
-
         # Build ALiBi bias
         alibi_bias = build_alibi_bias(
             self.n_heads, seq_len, input_ids.device, dtype=x.dtype
@@ -492,7 +480,7 @@ class ArithmeticModel(nn.Module):
 
         # Apply transformer layers
         for layer in self.layers:
-            x = layer(x, mask=causal_mask, alibi_bias=alibi_bias)
+            x = layer(x, alibi_bias=alibi_bias)
 
         # Final layer norm and projection
         x = self.ln_f(x)
