@@ -24,12 +24,8 @@ class TestDataGeneration:
             tokens = tokenizer.encode(example)
             decoded = tokenizer.decode(tokens)
             assert decoded == example
-
-            example = (
-                example.replace("<begin>", "")
-                .replace("<end>", "")
-                .replace("<noop>", "")
-            )
+            print(example)
+            example = example.replace("<begin>", "").replace("<end>", "")
             problem, answer_part = example.split("=", 1)
 
             # Parse operands and result

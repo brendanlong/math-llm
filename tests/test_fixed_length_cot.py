@@ -1,18 +1,9 @@
 """Tests for fixed-length chain-of-thought padding functionality."""
 
 from src.generation import (
-    calculate_max_operand_digits,
     generate_addition_examples,
 )
 from src.tokenizer import tokenizer
-
-
-def test_calculate_max_operand_digits():
-    """Test calculation of maximum digits in operands."""
-    assert calculate_max_operand_digits([1, 2, 3]) == 1
-    assert calculate_max_operand_digits([12, 345, 6]) == 3
-    assert calculate_max_operand_digits([999, 1000]) == 4
-    assert calculate_max_operand_digits([0]) == 1
 
 
 def test_generate_addition_examples_fixed_length_cot():

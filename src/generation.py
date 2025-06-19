@@ -29,7 +29,7 @@ def generate_chain_of_thought(operands: list[int]) -> str:
         Chain-of-thought reasoning string showing recursive addition with nested thinking tags
     """
     # Show recursive left-to-right addition
-    reasoning = ["<think>"]
+    reasoning: list[str] = []
 
     # Add each group of two operands recursively
     remaining_operands = operands.copy()
@@ -47,12 +47,7 @@ def generate_chain_of_thought(operands: list[int]) -> str:
         remaining_operands.insert(0, result)
     reasoning.append(reverse_operand(remaining_operands[0]))
 
-    reasoning.append("</think>")
     return "".join(reasoning)
-
-
-def calculate_max_operand_digits(operands: list[int]) -> int:
-    return max(len(str(operand)) for operand in operands)
 
 
 def generate_addition_examples(
@@ -70,19 +65,26 @@ def generate_addition_examples(
         max_digits: Maximum number of digits per operand (1-8)
         seed: Random seed for reproducibility
         max_operands: The maximum number of operands to add
-        fixed_length_cot: Whether to pad CoT to fixed length with <noop> tokens
+        fixed_length_cot: Whether to pad CoT to fixed length with <noop> tokens.
 
     Returns:
         List of arithmetic expressions in format "a+b+c=<think>...</think>d<end>" with recursive reasoning
-        If fixed_length_cot is True, pads reasoning to 10 * max(digits in operands) * max(number of operands)
     """
     assert max_digits >= 1
     assert max_operands >= 2
 
+    cot_length = (
+        len(
+            tokenizer.encode(
+                generate_chain_of_thought([10**max_digits - 1] * max_operands)
+            )
+        )
+        if fixed_length_cot
+        else 0
+    )
+
     r = random.Random(seed)
     examples = []
-
-    cot_length = 20 * max_digits * max_operands
 
     for _ in range(num_examples):
         # First select number of operands
@@ -107,22 +109,25 @@ def generate_addition_examples(
         result = sum(operands)
 
         # Generate chain-of-thought reasoning
-        reasoning = (
-            generate_chain_of_thought(operands) if include_chain_of_thought else ""
-        )
+        if include_chain_of_thought:
+            reasoning = (
+                generate_chain_of_thought(operands) if include_chain_of_thought else ""
+            )
 
-        # Apply fixed-length padding if enabled
-        if fixed_length_cot:
-            max_digits = calculate_max_operand_digits(operands)
-            reasoning_length = len(tokenizer.encode(reasoning))
-            pad_length = cot_length - reasoning_length
-            if pad_length < 0:
-                # Error out if our 4x assumption is wrong
-                raise ValueError(
-                    f"Generated CoT is longer than fixed-length CoT: {reasoning_length} > {cot_length}: {'+'.join(map(str, operands))}={reasoning}"
-                )
-            elif pad_length > 0:
-                reasoning += "<noop>" * pad_length
+            # Apply fixed-length padding if enabled
+            if fixed_length_cot:
+                reasoning_length = len(tokenizer.encode(reasoning))
+                pad_length = cot_length - reasoning_length
+                if pad_length < 0:
+                    # Error out if our 4x assumption is wrong
+                    raise ValueError(
+                        f"Generated CoT is longer than fixed-length CoT: {reasoning_length} > {cot_length}: {'+'.join(map(str, operands))}={reasoning}"
+                    )
+                elif pad_length > 0:
+                    reasoning += "<noop>" * pad_length
+            reasoning = f"<think>{reasoning}</think>"
+        else:
+            reasoning = ""
 
         example = f"<begin>{'+'.join(map(str, operands))}={reasoning}{result}<end>"
         examples.append(example)
