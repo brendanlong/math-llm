@@ -197,7 +197,7 @@ class GumbelTrainer(Trainer):
         results = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
 
         # If using Gumbel training, add generation-based evaluation
-        if self.use_gumbel and self.tokenizer is not None:
+        if self.use_gumbel and self.processing_class is not None:
             gen_results = self._evaluate_generation(eval_dataset or self.eval_dataset)
             # Add generation metrics with prefix
             for key, value in gen_results.items():
