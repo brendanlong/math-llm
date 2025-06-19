@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Optional
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -21,18 +22,18 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         self,
         data_path: str | Path,
         tokenizer: ArithmeticTokenizer,
-        max_length: int = MAX_SEQUENCE_LENGTH,
+        max_length: Optional[int] = None,
     ):
         """Initialize dataset.
 
         Args:
             data_path: Path to JSON file containing expressions
             tokenizer: Tokenizer instance for encoding expressions
-            max_length: Maximum sequence length (sequences will be padded/truncated)
+            max_length: Maximum sequence length (sequences will be padded/truncated).
+                       If None, uses longest_example_length from metadata + 10
         """
         self.data_path = Path(data_path)
         self.tokenizer = tokenizer
-        self.max_length = max_length
         self.end_token_id = tokenizer.vocab["<end>"]
         self.equals_token_id = tokenizer.vocab["="]
 
@@ -40,6 +41,18 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         with open(self.data_path, "r") as f:
             dataset: DatasetDict = json.load(f)
             self.data = dataset["examples"]
+
+            # Set max_length from metadata if not provided
+            if max_length is None:
+                if (
+                    "metadata" in dataset
+                    and "longest_example_length" in dataset["metadata"]
+                ):
+                    self.max_length = dataset["metadata"]["longest_example_length"] + 10
+                else:
+                    self.max_length = MAX_SEQUENCE_LENGTH
+            else:
+                self.max_length = max_length
 
     def __len__(self) -> int:
         return len(self.data)
@@ -84,7 +97,7 @@ def create_dataloader(
     tokenizer: ArithmeticTokenizer,
     batch_size: int = 32,
     shuffle: bool = True,
-    max_length: int = MAX_SEQUENCE_LENGTH,
+    max_length: Optional[int] = None,
     num_workers: int = 0,
 ) -> DataLoader[dict[str, torch.Tensor]]:
     """Create a DataLoader for arithmetic expressions.
@@ -117,7 +130,7 @@ def load_splits(
     data_dir: str | Path,
     tokenizer: ArithmeticTokenizer,
     batch_size: int = 32,
-    max_length: int = MAX_SEQUENCE_LENGTH,
+    max_length: Optional[int] = None,
     num_workers: int = 0,
 ) -> tuple[
     DataLoader[dict[str, torch.Tensor]],

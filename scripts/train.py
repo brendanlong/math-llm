@@ -27,7 +27,7 @@ import wandb
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.data import load_splits
+from src.data import ArithmeticDataset, load_splits
 from src.model import ArithmeticModel, create_model
 from src.tokenizer import VOCAB, ArithmeticTokenizer
 
@@ -307,8 +307,8 @@ def main() -> None:
     parser.add_argument(
         "--max-length",
         type=int,
-        default=128,
-        help="Maximum sequence length",
+        default=None,
+        help="Maximum sequence length (default: longest_example_length from training data metadata + 10)",
     )
 
     # Training arguments
@@ -432,6 +432,28 @@ def main() -> None:
     logger.info("Starting training script")
     logger.info(f"Arguments: {args}")
 
+    # Initialize tokenizer
+    logger.info("Initializing tokenizer")
+    tokenizer = ArithmeticTokenizer()
+
+    # Load data
+    logger.info(f"Loading data from {args.data_dir}")
+    train_loader, val_loader, test_loader = load_splits(
+        data_dir=args.data_dir,
+        tokenizer=tokenizer,
+        batch_size=args.batch_size,
+        max_length=args.max_length,
+        num_workers=args.num_workers,
+    )
+
+    # Get the actual max_length from the dataset (in case it was set from metadata)
+    actual_max_length = cast(ArithmeticDataset, train_loader.dataset).max_length
+    if args.max_length is None:
+        args.max_length = actual_max_length
+        logger.info(f"Using max_length={actual_max_length} from dataset metadata")
+    else:
+        assert actual_max_length == args.max_length
+
     # Initialize W&B
     if not args.no_wandb:
         wandb_name = f"arithmetic-{args.model_size}-{args.batch_size}batch-{args.learning_rate}lr"
@@ -452,20 +474,6 @@ def main() -> None:
             },
             name=wandb_name,
         )
-
-    # Initialize tokenizer
-    logger.info("Initializing tokenizer")
-    tokenizer = ArithmeticTokenizer()
-
-    # Load data
-    logger.info(f"Loading data from {args.data_dir}")
-    train_loader, val_loader, test_loader = load_splits(
-        data_dir=args.data_dir,
-        tokenizer=tokenizer,
-        batch_size=args.batch_size,
-        max_length=args.max_length,
-        num_workers=args.num_workers,
-    )
 
     logger.info(f"Train samples: {len(cast(Sized, train_loader.dataset))}")
     logger.info(f"Validation samples: {len(cast(Sized, val_loader.dataset))}")
@@ -523,9 +531,9 @@ def main() -> None:
         # Other settings
         seed=args.seed,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_gen_accuracy"
-        if args.use_gumbel
-        else "eval_token_accuracy",
+        metric_for_best_model=(
+            "eval_gen_accuracy" if args.use_gumbel else "eval_token_accuracy"
+        ),
         greater_is_better=True,
         torch_compile=not args.use_gumbel,  # Disable compile for Gumbel mode due to .item() calls
     )
