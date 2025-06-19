@@ -36,7 +36,8 @@ VocabToken = Literal[
     "<end>",
     "<think>",
     "</think>",
-    "<noop>",  # Special tokens
+    "<noop>",
+    "<begin>",  # Special tokens
 ]
 
 # Vocabulary mapping for arithmetic expressions with reasoning
@@ -57,6 +58,7 @@ VOCAB: dict[VocabToken, int] = {
     "<think>": 13,
     "</think>": 14,
     "<noop>": 15,
+    "<begin>": 16,
 }
 
 TOKEN_PATTERN = r"</think>|<think>|<noop>|<end>|[0-9+=]"

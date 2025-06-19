@@ -124,7 +124,7 @@ def generate_addition_examples(
             elif pad_length > 0:
                 reasoning += "<noop>" * pad_length
 
-        example = f"{'+'.join(map(str, operands))}={reasoning}{result}<end>"
+        example = f"<begin>{'+'.join(map(str, operands))}={reasoning}{result}<end>"
         examples.append(example)
 
     return examples

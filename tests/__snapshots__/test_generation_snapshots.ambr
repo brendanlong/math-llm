@@ -1,49 +1,49 @@
 # serializer version: 1
 # name: test_chain_of_thought_snapshots
   list([
-    '8+2=<think>8+2=01</think>10<end>',
-    '5+4=<think>5+4=9</think>9<end>',
+    '<begin>8+2=<think>8+2=01</think>10<end>',
+    '<begin>5+4=<think>5+4=9</think>9<end>',
   ])
 # ---
 # name: test_chain_of_thought_snapshots.1
   list([
-    '2+2+2=<think>2+2+2=4+2=6</think>6<end>',
-    '8+4=<think>8+4=21</think>12<end>',
+    '<begin>2+2+2=<think>2+2+2=4+2=6</think>6<end>',
+    '<begin>8+4=<think>8+4=21</think>12<end>',
   ])
 # ---
 # name: test_chain_of_thought_snapshots.2
   list([
-    '94+782+28=<think>49+287+82=678+82=409</think>904<end>',
-    '5+45+929=<think>5+54+929=05+929=979</think>979<end>',
+    '<begin>94+782+28=<think>49+287+82=678+82=409</think>904<end>',
+    '<begin>5+45+929=<think>5+54+929=05+929=979</think>979<end>',
   ])
 # ---
 # name: test_chain_of_thought_snapshots.3
   list([
-    '773+97347+246+1177+594=<think>377+74379+642+7711+495=02189+642+7711+495=66389+7711+495=34599+495=731001</think>100137<end>',
-    '4729+10218+29045+7023=<think>9274+81201+54092+3207=74941+54092+3207=29934+3207=51015</think>51015<end>',
+    '<begin>773+97347+246+1177+594=<think>377+74379+642+7711+495=02189+642+7711+495=66389+7711+495=34599+495=731001</think>100137<end>',
+    '<begin>4729+10218+29045+7023=<think>9274+81201+54092+3207=74941+54092+3207=29934+3207=51015</think>51015<end>',
   ])
 # ---
 # name: test_no_chain_of_thought_snapshots
   list([
-    '8+2=10<end>',
-    '5+4=9<end>',
+    '<begin>8+2=10<end>',
+    '<begin>5+4=9<end>',
   ])
 # ---
 # name: test_no_chain_of_thought_snapshots.1
   list([
-    '2+2+2=6<end>',
-    '8+4=12<end>',
+    '<begin>2+2+2=6<end>',
+    '<begin>8+4=12<end>',
   ])
 # ---
 # name: test_no_chain_of_thought_snapshots.2
   list([
-    '94+782+28=904<end>',
-    '5+45+929=979<end>',
+    '<begin>94+782+28=904<end>',
+    '<begin>5+45+929=979<end>',
   ])
 # ---
 # name: test_no_chain_of_thought_snapshots.3
   list([
-    '773+97347+246+1177+594=100137<end>',
-    '4729+10218+29045+7023=51015<end>',
+    '<begin>773+97347+246+1177+594=100137<end>',
+    '<begin>4729+10218+29045+7023=51015<end>',
   ])
 # ---

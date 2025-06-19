@@ -25,25 +25,23 @@ class TestDataGeneration:
             decoded = tokenizer.decode(tokens)
             assert decoded == example
 
-            # Extract the arithmetic expression
-            if "<think>" in example:
-                # Remove reasoning part for validation
-                problem = example.split("=<think>")[0] + "="
-                answer_part = example.split("</think>")[-1].replace("<end>", "")
-            else:
-                problem = example.replace("<end>", "")
-                answer_part = problem.split("=")[1]
-                problem = problem.split("=")[0] + "="
+            example = (
+                example.replace("<begin>", "")
+                .replace("<end>", "")
+                .replace("<noop>", "")
+            )
+            problem, answer_part = example.split("=", 1)
 
-            # Parse operands and result - handle 2-operand only
-            operands = problem.replace("=", "").split("+")
-            if len(operands) == 2:
-                a, b = int(operands[0]), int(operands[1])
-                expected_result = a + b
-            else:
-                continue  # Skip 3-operand for this test
+            # Parse operands and result
+            operands = problem.split("+")
+            expected_result = sum(map(int, operands))
 
-            result = int(answer_part)
+            final_answer = (
+                answer_part.split("</think>", 1)[1]
+                if "<think>" in answer_part
+                else answer_part
+            )
+            result = int(final_answer)
 
             # Check arithmetic
             assert expected_result == result
@@ -73,7 +71,7 @@ class TestDataGeneration:
             all_operands = []
             for example in examples:
                 # Extract operands
-                problem = example.split("=")[0]
+                problem = example.replace("<begin>", "").split("=")[0]
                 operands = list(map(int, problem.split("+")))
                 # All of the operands should be less than 10^max_digits, i.e. 2-digit numbers should be < 100
                 out_of_range = [
@@ -104,7 +102,7 @@ class TestDataGeneration:
             all_operands: list[list[int]] = []
             for example in examples:
                 # Extract operands
-                problem = example.split("=")[0]
+                problem = example.replace("<begin>", "").split("=")[0]
                 operands = list(map(int, problem.split("+")))
                 assert 2 <= len(operands) <= max_operands
 
