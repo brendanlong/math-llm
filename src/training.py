@@ -14,7 +14,7 @@ from .tokenizer import VOCAB
 
 
 def compute_metrics(eval_pred: EvalPrediction) -> dict[str, float]:
-    """Compute completion-only evaluation metrics to match training objective.
+    """Compute evaluation metrics to match training objective.
 
     Args:
         eval_pred: Predictions and labels from trainer
@@ -36,44 +36,20 @@ def compute_metrics(eval_pred: EvalPrediction) -> dict[str, float]:
     # Use original predictions and shifted labels
     labels = labels_shifted
 
-    # Flatten and generate basic mask
+    # Flatten and mask out ignored positions
     predictions_flat = predictions.reshape(-1)
     labels_flat = labels.reshape(-1)
-    mask = labels_flat != -100
-
-    # Mask everything after first <end> token (token_id=12)
-    end_token_id = VOCAB["<end>"]
-    batch_size, seq_len = labels.shape
-
-    # Find first <end> token in each sequence using numpy
-    end_mask = labels == end_token_id
-
-    # Get indices of first <end> per sequence (or seq_len if no <end>)
-    # Use argmax to find first True value in each row
-    # If no <end> token exists, argmax returns 0, so we need to check
-    first_end_indices = np.where(end_mask.any(axis=1), end_mask.argmax(axis=1), seq_len)
-
-    # Create sequence position indices
-    positions = np.arange(seq_len)[None, :].repeat(batch_size, axis=0)
-
-    # Mask positions after first <end> token
-    after_end_mask = positions > first_end_indices[:, None]
-
-    # Flatten the after_end_mask and combine with valid_mask
-    after_end_mask_flat = after_end_mask.reshape(-1)
-    valid_mask = mask & ~after_end_mask_flat
+    valid_mask = labels_flat != -100
 
     predictions_masked = predictions_flat[valid_mask]
     labels_masked = labels_flat[valid_mask]
 
-    # Compute accuracy only on completion tokens (answer portion)
-    if len(predictions_masked) > 0:
-        completion_accuracy = np.mean(predictions_masked == labels_masked)
-    else:
-        completion_accuracy = 0.0
+    # Compute accuracy only on valid tokens
+    assert len(predictions_masked) > 0, "No valid tokens found for evaluation"
+    accuracy = np.mean(predictions_masked == labels_masked)
 
     return {
-        "token_accuracy": float(completion_accuracy),
+        "token_accuracy": float(accuracy),
     }
 
 
@@ -105,7 +81,7 @@ class GumbelTrainer(Trainer):
         model: ArithmeticModel,
         inputs: dict[str, torch.Tensor],
         return_outputs: bool = False,
-        num_items_in_batch: Optional[int] = None,
+        num_items_in_batch: Optional[int] = None,  # noqa: ARG002
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Override compute_loss to pass Gumbel-Softmax parameters."""
         # Only use Gumbel during training, not evaluation
