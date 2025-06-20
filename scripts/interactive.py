@@ -525,12 +525,6 @@ def interactive_session(
             if not user_input:
                 continue
 
-            # Validate input contains only valid characters
-            valid_chars = set("0123456789+=")
-            if not all(c in valid_chars for c in user_input):
-                print("⚠️  Error: Input can only contain digits, '+', and '='")
-                continue
-
             # Encode input
             try:
                 input_ids = tokenizer.encode(user_input)
