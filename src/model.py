@@ -100,6 +100,17 @@ def compute_loss(
         # Shift the reasoning mask to align with shifted labels
         reasoning_mask_shifted = reasoning_mask[:, 1 : min_len + 1]
 
+        # Never mask special tokens - always train on them to prevent malformed reasoning
+        special_tokens = torch.tensor(
+            [VOCAB["<end>"], VOCAB["<think>"], VOCAB["</think>"]], device=labels.device
+        )
+        original_labels_shifted = labels[:, 1 : min_len + 1]
+        # Check if any position contains a special token (broadcasting)
+        is_special_token = (
+            original_labels_shifted.unsqueeze(-1) == special_tokens
+        ).any(dim=-1)
+        reasoning_mask_shifted = reasoning_mask_shifted & ~is_special_token
+
         # Set masked positions to ignore index (-100)
         shift_labels = shift_labels.masked_fill(reasoning_mask_shifted, -100)
 

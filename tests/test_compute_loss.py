@@ -156,3 +156,54 @@ class TestComputeLoss:
             f"Losses should be equal with empty reasoning block: "
             f"{loss_no_mask.item()} vs {loss_with_mask.item()}"
         )
+
+    def test_special_tokens_never_masked_in_reasoning(self):
+        """Test that special tokens inside reasoning blocks are never masked."""
+        # Example: "1+2=<think>5<end>6</think>3<end>"
+        # Tokens: [1, 10, 2, 11, 13, 5, 12, 6, 14, 3, 12]
+        # The 5 and 6 are regular content inside reasoning that should be masked
+        # But the 12 (<end>) inside reasoning should NOT be masked
+
+        batch_size = 1
+        seq_len = 11
+        vocab_size = len(VOCAB)
+
+        logits = torch.zeros(batch_size, seq_len, vocab_size)
+        labels = torch.tensor([[1, 10, 2, 11, 13, 5, 12, 6, 14, 3, 12]])
+
+        # Make predictions
+        logits[0, 0, 10] = 10.0  # Correct: 1 -> 10
+        logits[0, 1, 2] = 10.0  # Correct: 10 -> 2
+        logits[0, 2, 11] = 10.0  # Correct: 2 -> 11
+        logits[0, 3, 13] = 10.0  # Correct: 11 -> 13 (<think>)
+
+        # Inside reasoning block:
+        logits[0, 4, 5] = (
+            10.0  # Correct: 13 -> 5 (but should be masked since 5 is regular content)
+        )
+        logits[0, 5, 12] = 10.0  # Correct: 5 -> 12 (<end>) - should NOT be masked!
+        logits[0, 6, 0] = 10.0  # Wrong: should be 6, but 6 should be masked anyway
+        logits[0, 7, 14] = 10.0  # Correct: 6 -> 14 (</think>) - should NOT be masked!
+
+        # After reasoning block:
+        logits[0, 8, 3] = 10.0  # Correct: 14 -> 3
+        logits[0, 9, 12] = 10.0  # Correct: 3 -> 12 (<end>)
+
+        loss_no_mask = compute_loss(logits, labels, mask_reasoning=False)
+        loss_with_mask = compute_loss(logits, labels, mask_reasoning=True)
+
+        # Without mask: All predictions contribute to loss (1 wrong prediction)
+        # With mask: Regular reasoning content is masked, but special tokens are not
+        # So we train on: <think>, <end> (inside), </think>, and post-reasoning content
+        # One correct reasoning token (5) gets masked, one wrong reasoning token (6) gets masked
+        # But <end> and </think> inside reasoning are still trained on
+        assert loss_with_mask.item() < loss_no_mask.item(), (
+            f"Masked loss {loss_with_mask.item()} should be less than "
+            f"unmasked loss {loss_no_mask.item()} due to masking some wrong predictions"
+        )
+
+        # The masked loss should be very low since all unmasked predictions are correct
+        assert loss_with_mask.item() < 0.001, (
+            f"Expected near-zero masked loss with correct special token predictions, "
+            f"got {loss_with_mask.item()}"
+        )
