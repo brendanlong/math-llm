@@ -101,14 +101,16 @@ def compute_loss(
         reasoning_mask_shifted = reasoning_mask[:, 1 : min_len + 1]
 
         # Never mask special tokens - always train on them to prevent malformed reasoning
+        # Check if MODEL PREDICTIONS contain special tokens, not ground truth
         special_tokens = torch.tensor(
             [VOCAB["<end>"], VOCAB["<think>"], VOCAB["</think>"]], device=labels.device
         )
-        original_labels_shifted = labels[:, 1 : min_len + 1]
+        # Get predicted tokens from logits
+        predicted_tokens = torch.argmax(shift_logits, dim=-1)
         # Check if any position contains a special token (broadcasting)
-        is_special_token = (
-            original_labels_shifted.unsqueeze(-1) == special_tokens
-        ).any(dim=-1)
+        is_special_token = (predicted_tokens.unsqueeze(-1) == special_tokens).any(
+            dim=-1
+        )
         reasoning_mask_shifted = reasoning_mask_shifted & ~is_special_token
 
         # Set masked positions to ignore index (-100)
