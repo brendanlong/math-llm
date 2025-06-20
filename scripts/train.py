@@ -340,9 +340,7 @@ def main() -> None:
         # Other settings
         seed=args.seed,
         load_best_model_at_end=True,
-        metric_for_best_model=(
-            "eval_gen_accuracy" if args.use_gumbel else "eval_token_accuracy"
-        ),
+        metric_for_best_model="eval_token_accuracy",
         greater_is_better=True,
         torch_compile=not args.use_gumbel,  # Disable compile for Gumbel mode due to .item() calls
     )

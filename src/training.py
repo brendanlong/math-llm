@@ -136,9 +136,8 @@ class GumbelTrainer(Trainer):
         # If using Gumbel training, add generation-based evaluation
         if self.use_gumbel and self.processing_class is not None:
             gen_results = self._evaluate_generation(eval_dataset or self.eval_dataset)
-            # Add generation metrics with prefix
-            for key, value in gen_results.items():
-                results[f"{metric_key_prefix}_gen_{key}"] = value
+            # Add generation metrics with prefix, using same name as token accuracy
+            results[f"{metric_key_prefix}_token_accuracy"] = gen_results["accuracy"]
 
         return results
 
