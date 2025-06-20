@@ -275,7 +275,7 @@ def run_benchmark() -> list[BenchmarkResult]:
 
     # Batch sizes to try in descending order
     batch_sizes_to_try = [128, 64, 32, 16, 8, 4, 2, 1]
-    num_benchmark_steps = 20  # Fast benchmark
+    num_benchmark_steps = 100  # Fast benchmark
 
     results = []
 
