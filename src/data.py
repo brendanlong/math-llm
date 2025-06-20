@@ -7,7 +7,6 @@ from typing import Optional
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from .model import MAX_SEQUENCE_LENGTH
 from .tokenizer import VOCAB, tokenizer
 from .types import DatasetDict
 
@@ -29,7 +28,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
             data_path: Path to JSON file containing expressions
             tokenizer: Tokenizer instance for encoding expressions
             max_length: Maximum sequence length (sequences will be padded/truncated).
-                       If None, uses longest_example_length from metadata + 10
+                       If None, uses longest example length (in tokens)
         """
         self.data_path = Path(data_path)
         self.end_token_id = VOCAB["<end>"]
@@ -42,13 +41,9 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
 
             # Set max_length from metadata if not provided
             if max_length is None:
-                if (
-                    "metadata" in dataset
-                    and "longest_example_length" in dataset["metadata"]
-                ):
-                    self.max_length = dataset["metadata"]["longest_example_length"] + 10
-                else:
-                    self.max_length = MAX_SEQUENCE_LENGTH
+                self.max_length = max(
+                    len(tokenizer.encode(example)) for example in self.data
+                )
             else:
                 self.max_length = max_length
 

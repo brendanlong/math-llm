@@ -108,7 +108,7 @@ def main() -> None:
         "--max-length",
         type=int,
         default=None,
-        help="Maximum sequence length (default: longest_example_length from training data metadata + 10)",
+        help="Maximum sequence length (default: longest example length from training data)",
     )
 
     # Training arguments
