@@ -70,7 +70,6 @@ def create_reasoning_mask(input_ids: torch.Tensor) -> torch.Tensor:
 def compute_loss(
     logits: torch.Tensor,
     labels: torch.Tensor,
-    input_ids: Optional[torch.Tensor] = None,
     mask_reasoning: bool = False,
 ) -> torch.Tensor:
     """Compute completion-only loss (only on tokens after = sign).
@@ -78,7 +77,6 @@ def compute_loss(
     Args:
         logits: Model predictions of shape (batch_size, seq_len, vocab_size)
         labels: Target labels of shape (batch_size, seq_len)
-        input_ids: Input token IDs of shape (batch_size, seq_len), needed for reasoning mask
         mask_reasoning: If True, mask reasoning content between <think> and </think>
 
     Returns:
@@ -94,9 +92,10 @@ def compute_loss(
     shift_labels = shift_labels[:, :min_len]
 
     # Apply reasoning masking if requested
-    if mask_reasoning and input_ids is not None:
-        # Create reasoning mask from original input_ids (before shifting)
-        reasoning_mask = create_reasoning_mask(input_ids)
+    if mask_reasoning:
+        # Create reasoning mask from labels (not input_ids) to mask based on ground truth
+        # We need the original labels before shifting to find <think>...</think> positions
+        reasoning_mask = create_reasoning_mask(labels)
 
         # Shift the reasoning mask to align with shifted labels
         reasoning_mask_shifted = reasoning_mask[:, 1 : min_len + 1]
@@ -450,7 +449,7 @@ class ArithmeticModel(nn.Module):
 
         # Compute loss using standard method
         if labels is not None:
-            loss = compute_loss(logits, labels, input_ids, mask_reasoning)
+            loss = compute_loss(logits, labels, mask_reasoning)
             return {"loss": loss, "logits": logits}
 
         return {"logits": logits}
@@ -506,7 +505,7 @@ class ArithmeticModel(nn.Module):
 
         # Compute loss if labels are provided
         if labels is not None:
-            loss = compute_loss(logits, labels, input_ids, mask_reasoning)
+            loss = compute_loss(logits, labels, mask_reasoning)
             return {"loss": loss, "logits": logits}
 
         return logits
