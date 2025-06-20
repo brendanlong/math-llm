@@ -61,7 +61,7 @@ VOCAB: dict[VocabToken, int] = {
     "<begin>": 16,
 }
 
-TOKEN_PATTERN = r"</think>|<think>|<noop>|<end>|[0-9+=]"
+TOKEN_PATTERN = r"<begin>|</think>|<think>|<noop>|<end>|[0-9+=]"
 
 # Constants derived from vocabulary
 VOCAB_SIZE = len(VOCAB)
