@@ -352,7 +352,7 @@ class ArithmeticModel(nn.Module):
         Returns:
             Dictionary with loss and generated logits
         """
-        _, seq_len = input_ids.shape
+        batch_size, seq_len = input_ids.shape
 
         # Use input_ids as-is and compute logits for the full sequence
         # Token embeddings
@@ -381,20 +381,20 @@ class ArithmeticModel(nn.Module):
         # Process sequences with differentiable generation after equals
         all_logits = []
 
-        # Initialize embeddings list for each position
-        embeddings_by_pos = [x[:, i, :] for i in range(seq_len)]
+        # Initialize embeddings tensor (more efficient than list operations)
+        current_embeddings = x.clone()  # (batch_size, seq_len, d_model)
 
         for pos in range(seq_len):
-            # Build current embeddings tensor from list
-            current_embeddings = torch.stack(embeddings_by_pos[: pos + 1], dim=1)
+            # Get embeddings up to current position (avoid tensor stacking)
+            pos_embeddings = current_embeddings[:, : pos + 1, :]
 
             # Build ALiBi bias for current position
             alibi_bias = build_alibi_bias(
-                self.n_heads, pos + 1, input_ids.device, dtype=current_embeddings.dtype
+                self.n_heads, pos + 1, input_ids.device, dtype=pos_embeddings.dtype
             )
 
             # Apply transformer layers
-            hidden = current_embeddings
+            hidden = pos_embeddings
             for layer in self.layers:
                 hidden = layer(hidden, alibi_bias=alibi_bias)
 
@@ -422,10 +422,28 @@ class ArithmeticModel(nn.Module):
                     soft_probs @ self.token_embedding.weight
                 )  # (batch_size, d_model)
 
-                # Update embeddings for next position (non-in-place)
-                next_embeddings = embeddings_by_pos[pos + 1].clone()
-                next_embeddings[should_generate] = soft_embeddings[should_generate]
-                embeddings_by_pos[pos + 1] = next_embeddings
+                # Update embeddings for next position (avoid in-place to preserve gradients)
+                next_pos_embeddings = torch.where(
+                    should_generate.unsqueeze(1),
+                    soft_embeddings,
+                    current_embeddings[:, pos + 1, :],
+                )
+                # Create new tensor with updated embeddings
+                current_embeddings = torch.cat(
+                    [
+                        current_embeddings[:, : pos + 1, :],
+                        next_pos_embeddings.unsqueeze(1),
+                        current_embeddings[:, pos + 2 :, :]
+                        if pos + 2 < seq_len
+                        else torch.empty(
+                            batch_size,
+                            0,
+                            self.d_model,
+                            device=current_embeddings.device,
+                        ),
+                    ],
+                    dim=1,
+                )
 
         # Stack all logits
         logits = torch.stack(all_logits, dim=1)  # (batch_size, seq_len, vocab_size)
