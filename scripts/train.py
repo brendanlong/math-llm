@@ -30,8 +30,7 @@ from src.data import ArithmeticDataset, load_splits
 from src.model import create_model
 from src.tokenizer import VOCAB_SIZE
 from src.training import (
-    GumbelTrainer,
-    compute_metrics,
+    CustomTrainer,
     data_collator,
     setup_training_optimizations,
 )
@@ -346,13 +345,12 @@ def main() -> None:
     )
 
     # Create trainer
-    trainer = GumbelTrainer(
+    trainer = CustomTrainer(
         model=model,
         args=training_args,
         train_dataset=train_loader.dataset,
         eval_dataset=val_loader.dataset,
         data_collator=data_collator,
-        compute_metrics=compute_metrics,
         use_gumbel=args.use_gumbel,
         gumbel_temperature=args.gumbel_temperature,
         mask_reasoning=args.mask_reasoning,

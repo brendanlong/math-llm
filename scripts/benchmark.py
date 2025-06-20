@@ -28,7 +28,7 @@ from src.generation import generate_addition_examples
 from src.model import ArithmeticModel, ModelSizeStr, create_model
 from src.tokenizer import tokenizer
 from src.training import (
-    GumbelTrainer,
+    CustomTrainer,
     compute_metrics,
     data_collator,
     setup_training_optimizations,
@@ -142,7 +142,7 @@ def benchmark_training_step(
     num_steps: int = 20,  # Reduced for speed
     fp16: bool = False,
 ) -> tuple[float, float]:
-    """Benchmark training throughput using GumbelTrainer like train.py.
+    """Benchmark training throughput using CustomTrainer like train.py.
 
     Returns:
         Tuple of (iterations_per_second, samples_per_second)
@@ -173,7 +173,7 @@ def benchmark_training_step(
         torch_compile=not use_gumbel,  # Disable compile for Gumbel mode
     )
 
-    trainer = GumbelTrainer(
+    trainer = CustomTrainer(
         model=model,
         args=training_args,
         train_dataset=dataloader.dataset,

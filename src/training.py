@@ -9,15 +9,18 @@ import torch
 from transformers.trainer import Trainer
 from transformers.trainer_utils import EvalPrediction
 
-from .model import ArithmeticModel
+from .model import ArithmeticModel, create_reasoning_mask
 from .tokenizer import VOCAB
 
 
-def compute_metrics(eval_pred: EvalPrediction) -> dict[str, float]:
+def compute_metrics(
+    eval_pred: EvalPrediction, mask_reasoning: bool = False
+) -> dict[str, float]:
     """Compute evaluation metrics to match training objective.
 
     Args:
         eval_pred: Predictions and labels from trainer
+        mask_reasoning: If True, mask reasoning content between <think> and </think>
 
     Returns:
         Dictionary of computed metrics
@@ -35,6 +38,21 @@ def compute_metrics(eval_pred: EvalPrediction) -> dict[str, float]:
 
     # Use original predictions and shifted labels
     labels = labels_shifted
+
+    # Apply reasoning masking if requested (same logic as compute_loss)
+    if mask_reasoning:
+        # Create reasoning mask from original labels (before shifting)
+        original_labels = eval_pred.label_ids
+        reasoning_mask = create_reasoning_mask(torch.from_numpy(original_labels))
+
+        # Shift the reasoning mask to align with shifted labels
+        min_len = min(reasoning_mask.shape[1] - 1, labels.shape[1])
+        reasoning_mask_shifted = reasoning_mask[:, 1 : min_len + 1]
+
+        # Set masked positions to ignore index (-100)
+        labels[:, :min_len] = np.where(
+            reasoning_mask_shifted.numpy(), -100, labels[:, :min_len]
+        )
 
     # Flatten and mask out ignored positions
     predictions_flat = predictions.reshape(-1)
@@ -60,7 +78,7 @@ def data_collator(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tenso
     return {"input_ids": input_ids, "labels": labels}
 
 
-class GumbelTrainer(Trainer):
+class CustomTrainer(Trainer):
     """Custom trainer that supports Gumbel-Softmax generation."""
 
     def __init__(
@@ -70,11 +88,23 @@ class GumbelTrainer(Trainer):
         mask_reasoning: bool = False,
         **kwargs: Any,
     ):
-        super().__init__(**kwargs)
-        assert self.model is not None, "Model must be provided to GumbelTrainer"
+        assert "compute_metrics" not in kwargs
+        # Create a custom compute_metrics function that includes mask_reasoning
+        compute_metrics = self._create_compute_metrics(mask_reasoning)
+
+        super().__init__(**kwargs, compute_metrics=compute_metrics)
+        assert self.model is not None, "Model must be provided to CustomTrainer"
         self.use_gumbel = use_gumbel
         self.gumbel_temperature = gumbel_temperature
         self.mask_reasoning = mask_reasoning
+
+    def _create_compute_metrics(self, mask_reasoning: bool):
+        """Create a compute_metrics function that includes mask_reasoning parameter."""
+
+        def wrapped_compute_metrics(eval_pred: EvalPrediction) -> dict[str, float]:
+            return compute_metrics(eval_pred, mask_reasoning=mask_reasoning)
+
+        return wrapped_compute_metrics
 
     def compute_loss(
         self,
