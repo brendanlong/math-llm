@@ -349,11 +349,11 @@ class ArithmeticModel(nn.Module):
         labels: Optional[torch.Tensor],
         mask_reasoning: bool = True,
     ) -> dict[str, torch.Tensor]:
-        """Forward pass with self-generated reasoning.
+        """Forward pass with self-generated reasoning (optimized for fixed-length CoT).
 
-        This method generates exactly the same number of reasoning tokens as in the
-        original labels, without backpropagation, then uses those tokens to predict
-        the final answer.
+        This method groups sequences by their <think> position and generates reasoning
+        tokens in parallel within each group, providing significant speedup over
+        sequential generation.
 
         Args:
             input_ids: Input token IDs including full sequence
@@ -372,74 +372,113 @@ class ArithmeticModel(nn.Module):
         think_start_id = VOCAB["<think>"]
         think_end_id = VOCAB["</think>"]
 
-        # Process each sequence in the batch
+        # Group sequences by their <think> position for parallel generation
+        think_groups: dict[int, list[int]] = {}  # think_pos -> list of batch indices
+        reasoning_info: dict[
+            int, tuple[int, int]
+        ] = {}  # batch_idx -> (think_start_pos, num_reasoning_tokens)
+
+        # Analyze all sequences to find groupings
+        for batch_idx in range(batch_size):
+            seq_labels = labels[batch_idx]
+            think_start_positions = (seq_labels == think_start_id).nonzero(
+                as_tuple=False
+            )
+            think_end_positions = (seq_labels == think_end_id).nonzero(as_tuple=False)
+
+            # Skip if no reasoning section found
+            if len(think_start_positions) == 0 or len(think_end_positions) == 0:
+                continue
+
+            think_start_pos = think_start_positions[0].item()
+            think_end_pos = think_end_positions[0].item()
+
+            # Skip if invalid reasoning section
+            if think_start_pos >= think_end_pos:
+                continue
+
+            # Calculate exact number of reasoning tokens
+            num_reasoning_tokens = int(think_end_pos - think_start_pos - 1)
+
+            if num_reasoning_tokens <= 0:
+                continue
+
+            # Store reasoning info for this sequence
+            reasoning_info[batch_idx] = (
+                int(think_start_pos),
+                int(num_reasoning_tokens),
+            )
+
+            # Group by think position (sequences with same think position can be generated in parallel)
+            think_start_pos_key = int(think_start_pos)
+            if think_start_pos_key not in think_groups:
+                think_groups[think_start_pos_key] = []
+            think_groups[think_start_pos_key].append(batch_idx)
+
+        # Clone input for modifications
         modified_inputs = input_ids.clone()
 
+        # Generate reasoning for each group in parallel
         with torch.no_grad():
-            for batch_idx in range(batch_size):
-                # Find <think> and </think> positions in labels
-                seq_labels = labels[batch_idx]
-                think_start_positions = (seq_labels == think_start_id).nonzero(
-                    as_tuple=False
+            for think_pos, batch_indices in think_groups.items():
+                if not batch_indices:
+                    continue
+
+                # Get the first sequence's reasoning length (should be same for fixed-length CoT)
+                first_idx = batch_indices[0]
+                _, num_reasoning_tokens = reasoning_info[first_idx]
+
+                # Validate that all sequences in this group have the same reasoning length
+                for batch_idx in batch_indices[1:]:
+                    _, other_num_tokens = reasoning_info[batch_idx]
+                    if other_num_tokens != num_reasoning_tokens:
+                        raise ValueError(
+                            f"Inconsistent reasoning length in group at position {think_pos}: "
+                            f"sequence {first_idx} has {num_reasoning_tokens} tokens, "
+                            f"but sequence {batch_idx} has {other_num_tokens} tokens. "
+                            f"Self-reasoning mode requires fixed-length CoT."
+                        )
+
+                # Extract prompts for this group (up to and including <think>)
+                prompt_len = think_pos + 1
+                group_prompts = torch.stack(
+                    [input_ids[i, :prompt_len] for i in batch_indices]
                 )
-                think_end_positions = (seq_labels == think_end_id).nonzero(
-                    as_tuple=False
-                )
 
-                # Skip if no reasoning section found
-                if len(think_start_positions) == 0 or len(think_end_positions) == 0:
-                    continue
-
-                think_start_pos = think_start_positions[0].item()
-                think_end_pos = think_end_positions[0].item()
-
-                # Skip if invalid reasoning section
-                if think_start_pos >= think_end_pos:
-                    continue
-
-                # Calculate exact number of reasoning tokens (excluding <think> and </think>)
-                num_reasoning_tokens = int(think_end_pos - think_start_pos - 1)
-
-                if num_reasoning_tokens <= 0:
-                    continue
-
-                # Generate exactly num_reasoning_tokens
-                prompt = input_ids[
-                    batch_idx : batch_idx + 1, : think_start_pos + 1
-                ]  # Up to and including <think>
-                current_seq = prompt.clone()
-                generated_tokens = []
+                # Generate reasoning tokens in parallel for this group
+                current_seqs = group_prompts.clone()  # Shape: (group_size, prompt_len)
 
                 for _ in range(num_reasoning_tokens):
-                    # Get model prediction for next token
-                    outputs = self.forward(current_seq)
+                    # Get model predictions for all sequences in this group
+                    outputs = self.forward(current_seqs)
                     if isinstance(outputs, dict):
                         logits = outputs["logits"]
                     else:
                         logits = outputs
 
-                    # Get next token (argmax for deterministic generation)
-                    next_token_logits = logits[0, -1, :]
-                    next_token = torch.argmax(next_token_logits)
+                    # Get next token predictions
+                    next_token_logits = logits[
+                        :, -1, :
+                    ]  # Shape: (group_size, vocab_size)
+                    next_tokens = torch.argmax(
+                        next_token_logits, dim=-1
+                    )  # Shape: (group_size,)
 
-                    generated_tokens.append(next_token)
-
-                    # Append to sequence
-                    current_seq = torch.cat(
-                        [current_seq, next_token.unsqueeze(0).unsqueeze(0)], dim=1
+                    # Append to all sequences in group
+                    current_seqs = torch.cat(
+                        [current_seqs, next_tokens.unsqueeze(1)], dim=1
                     )
 
-                # Replace the reasoning tokens in the input
-                # Keep everything up to <think>, insert generated tokens, then add </think> and rest
-                if len(generated_tokens) > 0:
-                    generated_tensor = torch.stack(generated_tokens)
-                    # Replace tokens between <think> and </think>
+                # Extract generated reasoning tokens for this group
+                generated_reasoning = current_seqs[
+                    :, prompt_len:
+                ]  # Shape: (group_size, num_reasoning_tokens)
+
+                # Update the modified inputs for all sequences in this group
+                for i, batch_idx in enumerate(batch_indices):
                     modified_inputs[
-                        batch_idx,
-                        think_start_pos + 1 : think_start_pos
-                        + 1
-                        + num_reasoning_tokens,
-                    ] = generated_tensor
+                        batch_idx, think_pos + 1 : think_pos + 1 + num_reasoning_tokens
+                    ] = generated_reasoning[i]
 
         # Forward pass with modified inputs (containing generated reasoning)
         outputs = self.forward(

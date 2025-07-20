@@ -225,7 +225,9 @@ def main() -> None:
     parser.add_argument(
         "--use-self-reasoning",
         action="store_true",
-        help="Generate reasoning tokens without backprop, then predict with them (mutually exclusive with --use-gumbel)",
+        help="Generate reasoning tokens without backprop, then predict with them. "
+        "Groups sequences by <think> position for parallel generation. "
+        "Works best with fixed-length CoT data (mutually exclusive with --use-gumbel)",
     )
 
     args = parser.parse_args()
@@ -327,6 +329,7 @@ def main() -> None:
     if args.use_self_reasoning:
         logger.info("Using self-reasoning generation mode")
         logger.info("Model will generate reasoning tokens without backprop")
+        logger.info("Groups sequences by <think> position for parallel generation")
         logger.info(
             "Disabling torch.compile for self-reasoning mode due to .item() calls"
         )
@@ -334,6 +337,11 @@ def main() -> None:
             logger.warning(
                 "Self-reasoning mode typically works best with --mask-reasoning"
             )
+        logger.warning(
+            "PERFORMANCE TIP: Self-reasoning mode works best with fixed-length CoT data "
+            "(generated with --fixed-length-cot). This ensures better parallelization "
+            "by grouping sequences with the same reasoning structure."
+        )
 
     # Training arguments
     training_args = TrainingArguments(
