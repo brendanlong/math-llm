@@ -79,13 +79,14 @@ def data_collator(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tenso
 
 
 class CustomTrainer(Trainer):
-    """Custom trainer that supports Gumbel-Softmax generation."""
+    """Custom trainer that supports Gumbel-Softmax generation and self-reasoning."""
 
     def __init__(
         self,
         use_gumbel: bool = False,
         gumbel_temperature: float = 1.0,
         mask_reasoning: bool = False,
+        use_self_reasoning: bool = False,
         **kwargs: Any,
     ):
         assert "compute_metrics" not in kwargs
@@ -97,6 +98,12 @@ class CustomTrainer(Trainer):
         self.use_gumbel = use_gumbel
         self.gumbel_temperature = gumbel_temperature
         self.mask_reasoning = mask_reasoning
+        self.use_self_reasoning = use_self_reasoning
+
+        # Validate mutually exclusive options
+        assert not (use_gumbel and use_self_reasoning), (
+            "Cannot use both Gumbel and self-reasoning modes"
+        )
 
     def _create_compute_metrics(self, mask_reasoning: bool):
         """Create a compute_metrics function that includes mask_reasoning parameter."""
@@ -113,11 +120,14 @@ class CustomTrainer(Trainer):
         return_outputs: bool = False,
         num_items_in_batch: Optional[int] = None,  # noqa: ARG002
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Override compute_loss to pass Gumbel-Softmax parameters."""
-        # Only use Gumbel during training, not evaluation
+        """Override compute_loss to pass training mode parameters."""
+        # Only use special modes during training, not evaluation
         if self.use_gumbel and model.training:
             inputs["use_gumbel"] = torch.tensor(True)
             inputs["gumbel_temperature"] = torch.tensor(self.gumbel_temperature)
+
+        if self.use_self_reasoning and model.training:
+            inputs["use_self_reasoning"] = torch.tensor(True)
 
         # Pass mask_reasoning parameter
         inputs["mask_reasoning"] = torch.tensor(self.mask_reasoning)

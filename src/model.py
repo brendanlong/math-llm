@@ -343,6 +343,119 @@ class ArithmeticModel(nn.Module):
         """
         return F.gumbel_softmax(logits, tau=temperature, hard=hard, dim=-1)
 
+    def _forward_with_self_reasoning(
+        self,
+        input_ids: torch.Tensor,
+        labels: Optional[torch.Tensor],
+        mask_reasoning: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        """Forward pass with self-generated reasoning.
+
+        This method generates exactly the same number of reasoning tokens as in the
+        original labels, without backpropagation, then uses those tokens to predict
+        the final answer.
+
+        Args:
+            input_ids: Input token IDs including full sequence
+            labels: Full target sequence including reasoning and answer
+            mask_reasoning: Whether to mask reasoning in loss (default True)
+
+        Returns:
+            Dictionary with loss and generated logits
+        """
+        if labels is None:
+            raise ValueError("Labels required for self-reasoning mode")
+
+        batch_size, _ = input_ids.shape
+
+        # Token IDs
+        think_start_id = VOCAB["<think>"]
+        think_end_id = VOCAB["</think>"]
+
+        # Process each sequence in the batch
+        modified_inputs = input_ids.clone()
+
+        with torch.no_grad():
+            for batch_idx in range(batch_size):
+                # Find <think> and </think> positions in labels
+                seq_labels = labels[batch_idx]
+                think_start_positions = (seq_labels == think_start_id).nonzero(
+                    as_tuple=False
+                )
+                think_end_positions = (seq_labels == think_end_id).nonzero(
+                    as_tuple=False
+                )
+
+                # Skip if no reasoning section found
+                if len(think_start_positions) == 0 or len(think_end_positions) == 0:
+                    continue
+
+                think_start_pos = think_start_positions[0].item()
+                think_end_pos = think_end_positions[0].item()
+
+                # Skip if invalid reasoning section
+                if think_start_pos >= think_end_pos:
+                    continue
+
+                # Calculate exact number of reasoning tokens (excluding <think> and </think>)
+                num_reasoning_tokens = int(think_end_pos - think_start_pos - 1)
+
+                if num_reasoning_tokens <= 0:
+                    continue
+
+                # Generate exactly num_reasoning_tokens
+                prompt = input_ids[
+                    batch_idx : batch_idx + 1, : think_start_pos + 1
+                ]  # Up to and including <think>
+                current_seq = prompt.clone()
+                generated_tokens = []
+
+                for _ in range(num_reasoning_tokens):
+                    # Get model prediction for next token
+                    outputs = self.forward(current_seq)
+                    if isinstance(outputs, dict):
+                        logits = outputs["logits"]
+                    else:
+                        logits = outputs
+
+                    # Get next token (argmax for deterministic generation)
+                    next_token_logits = logits[0, -1, :]
+                    next_token = torch.argmax(next_token_logits)
+
+                    generated_tokens.append(next_token)
+
+                    # Append to sequence
+                    current_seq = torch.cat(
+                        [current_seq, next_token.unsqueeze(0).unsqueeze(0)], dim=1
+                    )
+
+                # Replace the reasoning tokens in the input
+                # Keep everything up to <think>, insert generated tokens, then add </think> and rest
+                if len(generated_tokens) > 0:
+                    generated_tensor = torch.stack(generated_tokens)
+                    # Replace tokens between <think> and </think>
+                    modified_inputs[
+                        batch_idx,
+                        think_start_pos + 1 : think_start_pos
+                        + 1
+                        + num_reasoning_tokens,
+                    ] = generated_tensor
+
+        # Forward pass with modified inputs (containing generated reasoning)
+        outputs = self.forward(
+            modified_inputs,
+            attention_mask=None,
+            labels=labels,
+            mask_reasoning=mask_reasoning,
+            use_self_reasoning=False,  # Prevent recursion
+        )
+
+        # Ensure we return a dict for consistency
+        if isinstance(outputs, dict):
+            return outputs
+        else:
+            return {"logits": outputs}
+
     def _forward_with_gumbel(
         self,
         input_ids: torch.Tensor,
@@ -475,6 +588,7 @@ class ArithmeticModel(nn.Module):
         use_gumbel: bool = False,
         gumbel_temperature: float = 1.0,
         mask_reasoning: bool = False,
+        use_self_reasoning: bool = False,
         **_kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
@@ -486,11 +600,19 @@ class ArithmeticModel(nn.Module):
             use_gumbel: Whether to use Gumbel-Softmax for differentiable generation
             gumbel_temperature: Temperature for Gumbel-Softmax (lower = more discrete)
             mask_reasoning: Whether to mask reasoning content between <think> and </think>
+            use_self_reasoning: Whether to use self-generated reasoning mode
 
         Returns:
             If labels provided: dict with 'loss' and 'logits'
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
+        if use_self_reasoning:
+            # Self-reasoning mode requirements
+            assert labels is not None, "Labels required for self-reasoning mode"
+            assert self.training, "Self-reasoning mode only supported during training"
+            assert not use_gumbel, "Cannot use both self-reasoning and Gumbel-Softmax"
+            return self._forward_with_self_reasoning(input_ids, labels, mask_reasoning)
+
         if use_gumbel and labels is not None and self.training:
             # Generate full sequence using Gumbel-Softmax (only during training)
             return self._forward_with_gumbel(

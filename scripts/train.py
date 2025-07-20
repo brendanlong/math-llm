@@ -222,8 +222,17 @@ def main() -> None:
         action="store_true",
         help="Mask reasoning content between <think> and </think> tags during training",
     )
+    parser.add_argument(
+        "--use-self-reasoning",
+        action="store_true",
+        help="Generate reasoning tokens without backprop, then predict with them (mutually exclusive with --use-gumbel)",
+    )
 
     args = parser.parse_args()
+
+    # Validate mutually exclusive options
+    if args.use_gumbel and args.use_self_reasoning:
+        parser.error("--use-gumbel and --use-self-reasoning are mutually exclusive")
 
     # Setup
     setup_logging()
@@ -262,6 +271,8 @@ def main() -> None:
         wandb_name = f"arithmetic-{args.model_size}-{args.batch_size}batch-{args.learning_rate}lr"
         if args.use_gumbel:
             wandb_name += f"-gumbel{args.gumbel_temperature}"
+        if args.use_self_reasoning:
+            wandb_name += "-selfreason"
         if args.mask_reasoning:
             wandb_name += "-masked"
 
@@ -277,6 +288,7 @@ def main() -> None:
                 "use_gumbel": args.use_gumbel,
                 "gumbel_temperature": args.gumbel_temperature,
                 "mask_reasoning": args.mask_reasoning,
+                "use_self_reasoning": args.use_self_reasoning,
             },
             name=wandb_name,
         )
@@ -311,6 +323,18 @@ def main() -> None:
     if args.mask_reasoning:
         logger.info("Masking reasoning content between <think> and </think> tags")
 
+    # Log self-reasoning settings
+    if args.use_self_reasoning:
+        logger.info("Using self-reasoning generation mode")
+        logger.info("Model will generate reasoning tokens without backprop")
+        logger.info(
+            "Disabling torch.compile for self-reasoning mode due to .item() calls"
+        )
+        if not args.mask_reasoning:
+            logger.warning(
+                "Self-reasoning mode typically works best with --mask-reasoning"
+            )
+
     # Training arguments
     training_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -341,7 +365,9 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model="eval_token_accuracy",
         greater_is_better=True,
-        torch_compile=not args.use_gumbel,  # Disable compile for Gumbel mode due to .item() calls
+        torch_compile=not (
+            args.use_gumbel or args.use_self_reasoning
+        ),  # Disable compile for special modes due to .item() calls
     )
 
     # Create trainer
@@ -354,6 +380,7 @@ def main() -> None:
         use_gumbel=args.use_gumbel,
         gumbel_temperature=args.gumbel_temperature,
         mask_reasoning=args.mask_reasoning,
+        use_self_reasoning=args.use_self_reasoning,
     )
 
     # Save training configuration
@@ -365,6 +392,7 @@ def main() -> None:
         "use_gumbel": args.use_gumbel,
         "gumbel_temperature": args.gumbel_temperature,
         "mask_reasoning": args.mask_reasoning,
+        "use_self_reasoning": args.use_self_reasoning,
         "training_args": training_args.to_dict(),
     }
 
