@@ -26,8 +26,9 @@ from transformers.training_args import TrainingArguments
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
 
+from src.config import load_config, save_config
 from src.data import ArithmeticDataset, load_splits
-from src.model import create_model
+from src.model import create_model_from_config
 from src.tokenizer import VOCAB_SIZE
 from src.training import (
     compute_metrics,
@@ -90,18 +91,10 @@ def main() -> None:
 
     # Model arguments
     parser.add_argument(
-        "--model-size",
-        type=str,
-        default="small",
-        choices=["xsmall", "small", "medium", "large"],
-        help="Model size configuration",
-    )
-    parser.add_argument(
-        "--architecture",
-        type=str,
-        default="standard",
-        choices=["standard", "universal"],
-        help="Model architecture: standard transformer or universal transformer",
+        "--config",
+        type=Path,
+        required=True,
+        help="Path to model configuration YAML file (e.g., config/standard-small.yaml)",
     )
 
     # Data arguments
@@ -248,17 +241,29 @@ def main() -> None:
     else:
         assert actual_max_length == args.max_length
 
-    # Architecture suffix for naming
-    arch_suffix = "-ut" if args.architecture == "universal" else ""
+    # Load model configuration
+    logger.info(f"Loading model configuration from {args.config}")
+    model_config = load_config(args.config)
+
+    # Get config name for logging
+    config_name = (
+        args.config.stem
+    )  # e.g., "standard-small" from "config/standard-small.yaml"
 
     # Initialize W&B
     if not args.no_wandb:
-        wandb_name = f"arithmetic-{args.model_size}{arch_suffix}-{args.batch_size}batch-{args.learning_rate}lr"
+        wandb_name = (
+            f"arithmetic-{config_name}-{args.batch_size}batch-{args.learning_rate}lr"
+        )
         wandb.init(
             project="math-llm",
             config={
-                "model_size": args.model_size,
-                "architecture": args.architecture,
+                "config_file": str(args.config),
+                "architecture": model_config.architecture,
+                "d_model": model_config.d_model,
+                "n_layers": model_config.n_layers,
+                "n_heads": model_config.n_heads,
+                "d_ff": model_config.d_ff,
                 "batch_size": args.batch_size,
                 "learning_rate": args.learning_rate,
                 "num_epochs": args.num_epochs,
@@ -275,13 +280,13 @@ def main() -> None:
     # Create model
     arch_desc = (
         "Universal Transformer"
-        if args.architecture == "universal"
+        if model_config.architecture == "universal"
         else "standard transformer"
     )
-    logger.info(f"Creating {args.model_size} {arch_desc}")
-    model = create_model(args.model_size, args.architecture)
+    logger.info(f"Creating {config_name} {arch_desc}")
+    model = create_model_from_config(model_config)
     logger.info(f"Model parameters: {model.count_parameters():,}")
-    if args.architecture == "universal":
+    if model_config.architecture == "universal":
         logger.info(
             f"Universal Transformer: {model.n_layers} layers × {model.n_loops} loops = {model.sequential_depth} sequential depth"
         )
@@ -318,7 +323,7 @@ def main() -> None:
         save_total_limit=3,  # Keep only 3 most recent checkpoints
         # W&B integration
         report_to="wandb" if not args.no_wandb else "none",
-        run_name=f"arithmetic-{args.model_size}{arch_suffix}",
+        run_name=f"arithmetic-{config_name}",
         # Other settings
         seed=args.seed,
         load_best_model_at_end=True,
@@ -337,25 +342,30 @@ def main() -> None:
         compute_metrics=compute_metrics,
     )
 
+    # Save model configuration to output directory
+    model_config_path = Path(args.output_dir) / "model_config.yaml"
+    save_config(model_config, model_config_path)
+    logger.info(f"Saved model configuration to {model_config_path}")
+
     # Save training configuration
-    config = {
-        "model_size": args.model_size,
-        "architecture": args.architecture,
+    training_config = {
+        "config_file": str(args.config),
+        "architecture": model_config.architecture,
         "model_parameters": model.count_parameters(),
         "vocab_size": VOCAB_SIZE,
         "max_length": args.max_length,
         "training_args": training_args.to_dict(),
     }
-    if args.architecture == "universal":
-        config["n_layers"] = model.n_layers
-        config["n_loops"] = model.n_loops
-        config["sequential_depth"] = model.sequential_depth
+    if model_config.architecture == "universal":
+        training_config["n_layers"] = model.n_layers
+        training_config["n_loops"] = model.n_loops
+        training_config["sequential_depth"] = model.sequential_depth
 
-    config_path = Path(args.output_dir) / "training_config.json"
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2)
+    training_config_path = Path(args.output_dir) / "training_config.json"
+    with open(training_config_path, "w") as f:
+        json.dump(training_config, f, indent=2)
 
-    logger.info(f"Saved training configuration to {config_path}")
+    logger.info(f"Saved training configuration to {training_config_path}")
 
     # Profile training if requested
     if args.profile:

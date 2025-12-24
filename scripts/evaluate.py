@@ -21,13 +21,9 @@ from tqdm import tqdm
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
 
+from src.config import find_config_in_checkpoint, load_config
 from src.data import create_dataloader
-from src.model import (
-    ArchitectureStr,
-    Model,
-    ModelSizeStr,
-    create_model,
-)
+from src.model import Model, create_model_from_config
 from src.tokenizer import VOCAB, tokenizer
 
 
@@ -129,20 +125,19 @@ def setup_logging() -> None:
 
 def load_model(
     checkpoint_path: Path,
-    model_size: ModelSizeStr,
-    architecture: ArchitectureStr = "standard",
+    config_path: Path,
 ) -> Model:
     """Load model from checkpoint.
 
     Args:
         checkpoint_path: Path to model checkpoint
-        model_size: Model size ("small", "medium", or "large")
-        architecture: Model architecture ("standard" or "universal")
+        config_path: Path to model configuration YAML file
 
     Returns:
         Loaded model
     """
-    model = create_model(model_size, architecture)
+    config = load_config(config_path)
+    model = create_model_from_config(config)
 
     # Load checkpoint - handle different formats
     if checkpoint_path.suffix == ".safetensors":
@@ -349,18 +344,10 @@ def main() -> None:
         help="Path to model checkpoint",
     )
     parser.add_argument(
-        "--model-size",
-        type=str,
-        default="small",
-        choices=["xsmall", "small", "medium", "large"],
-        help="Model size configuration",
-    )
-    parser.add_argument(
-        "--architecture",
-        type=str,
-        default="standard",
-        choices=["standard", "universal"],
-        help="Model architecture: standard transformer or universal transformer",
+        "--config",
+        type=Path,
+        default=None,
+        help="Path to model configuration YAML file (auto-detected from checkpoint dir if not specified)",
     )
 
     # Data arguments
@@ -416,16 +403,22 @@ def main() -> None:
 
     logging.info(f"Using device: {device}")
 
-    # Initialize tokenizer
+    # Find or use provided config
+    if args.config is not None:
+        config_path = args.config
+    else:
+        config_path = find_config_in_checkpoint(args.checkpoint)
+        if config_path is None:
+            logging.error(
+                "No model_config.yaml found in checkpoint directory. "
+                "Please specify --config path."
+            )
+            sys.exit(1)
+        logging.info(f"Auto-detected config: {config_path}")
 
     # Load model
-    arch_desc = (
-        "Universal Transformer"
-        if args.architecture == "universal"
-        else "standard transformer"
-    )
-    logging.info(f"Loading {args.model_size} {arch_desc} from {args.checkpoint}")
-    model = load_model(args.checkpoint, args.model_size, args.architecture)
+    logging.info(f"Loading model from {args.checkpoint} with config {config_path}")
+    model = load_model(args.checkpoint, config_path)
     model.to(device)
 
     # Determine data path

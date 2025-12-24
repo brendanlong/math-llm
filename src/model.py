@@ -5,12 +5,13 @@ learning basic arithmetic operations like addition.
 """
 
 import math
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from .config import ModelConfig
 from .tokenizer import VOCAB_SIZE
 
 MAX_SEQUENCE_LENGTH = 1024
@@ -563,143 +564,38 @@ class UniversalTransformerModel(nn.Module):
         return self.n_layers * self.n_loops
 
 
-def create_extra_small_model() -> ArithmeticModel:
-    """Create an extra-small model configuration."""
-    return ArithmeticModel(
-        d_model=32,
-        n_layers=4,
-        n_heads=4,
-        d_ff=128,
-        dropout=0.1,
-    )
-
-
-def create_small_model() -> ArithmeticModel:
-    """Create a small model configuration (~1M parameters)."""
-    return ArithmeticModel(
-        d_model=256,
-        n_layers=4,
-        n_heads=4,
-        d_ff=512,
-        dropout=0.1,
-    )
-
-
-def create_medium_model() -> ArithmeticModel:
-    """Create a medium model configuration (~5M parameters)."""
-    return ArithmeticModel(
-        d_model=512,
-        n_layers=6,
-        n_heads=8,
-        d_ff=1024,
-        dropout=0.1,
-    )
-
-
-def create_large_model() -> ArithmeticModel:
-    """Create a large model configuration (~10M parameters)."""
-    return ArithmeticModel(
-        d_model=512,
-        n_layers=8,
-        n_heads=8,
-        d_ff=2048,
-        dropout=0.1,
-    )
-
-
-# Universal Transformer factory functions
-
-
-def create_ut_small_model() -> UniversalTransformerModel:
-    """Create a small Universal Transformer (2 layers × 4 loops = 8 depth).
-
-    Compute-matched with an 8-layer standard transformer but with ~1/4 params.
-    Uses d_model=256, same as small standard model.
-    """
-    return UniversalTransformerModel(
-        d_model=256,
-        n_layers=2,
-        n_loops=4,
-        n_heads=4,
-        d_ff=512,
-        dropout=0.1,
-        use_loop_embeddings=True,
-    )
-
-
-def create_ut_medium_model() -> UniversalTransformerModel:
-    """Create a medium Universal Transformer (2 layers × 4 loops = 8 depth).
-
-    Uses d_model=512, same as medium standard model.
-    """
-    return UniversalTransformerModel(
-        d_model=512,
-        n_layers=2,
-        n_loops=4,
-        n_heads=8,
-        d_ff=1024,
-        dropout=0.1,
-        use_loop_embeddings=True,
-    )
-
-
-def create_ut_large_model() -> UniversalTransformerModel:
-    """Create a large Universal Transformer (2 layers × 6 loops = 12 depth).
-
-    Uses d_model=512, same as large standard model.
-    """
-    return UniversalTransformerModel(
-        d_model=512,
-        n_layers=2,
-        n_loops=6,
-        n_heads=8,
-        d_ff=2048,
-        dropout=0.1,
-        use_loop_embeddings=True,
-    )
-
-
-ModelSizeStr = Literal["xsmall", "small", "medium", "large"]
-ArchitectureStr = Literal["standard", "universal"]
-
 # Type alias for either model type
 Model = ArithmeticModel | UniversalTransformerModel
 
 
-def create_model(
-    model_size: ModelSizeStr,
-    architecture: ArchitectureStr = "standard",
-) -> Model:
-    """Create a model with the specified size and architecture.
+def create_model_from_config(config: ModelConfig) -> Model:
+    """Create a model from a configuration object.
 
     Args:
-        model_size: Size configuration (xsmall, small, medium, large)
-        architecture: Architecture type (standard or universal)
+        config: ModelConfig with architecture and hyperparameters
 
     Returns:
-        Model instance of the specified type
+        Model instance (ArithmeticModel or UniversalTransformerModel)
     """
-    if architecture == "standard":
-        if model_size == "xsmall":
-            return create_extra_small_model()
-        elif model_size == "small":
-            return create_small_model()
-        elif model_size == "medium":
-            return create_medium_model()
-        elif model_size == "large":
-            return create_large_model()
-        else:
-            raise ValueError(f"Unknown model size: {model_size}")
-    elif architecture == "universal":
-        if model_size == "xsmall":
-            raise ValueError("xsmall size not available for universal transformer")
-        elif model_size == "small":
-            return create_ut_small_model()
-        elif model_size == "medium":
-            return create_ut_medium_model()
-        elif model_size == "large":
-            return create_ut_large_model()
-        else:
-            raise ValueError(f"Unknown model size: {model_size}")
+    if config.architecture == "standard":
+        return ArithmeticModel(
+            d_model=config.d_model,
+            n_layers=config.n_layers,
+            n_heads=config.n_heads,
+            d_ff=config.d_ff,
+            dropout=config.dropout,
+        )
+    elif config.architecture == "universal":
+        if config.n_loops is None:
+            raise ValueError("Universal transformer requires n_loops parameter")
+        return UniversalTransformerModel(
+            d_model=config.d_model,
+            n_layers=config.n_layers,
+            n_loops=config.n_loops,
+            n_heads=config.n_heads,
+            d_ff=config.d_ff,
+            dropout=config.dropout,
+            use_loop_embeddings=config.use_loop_embeddings,
+        )
     else:
-        raise ValueError(f"Unknown architecture: {architecture}")
+        raise ValueError(f"Unknown architecture: {config.architecture}")

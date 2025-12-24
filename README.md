@@ -28,10 +28,10 @@ The current CoT looks like this:
 python scripts/generate_data.py
 
 # Train the model
-python scripts/train.py
+python scripts/train.py --config config/standard-small.yaml
 
-# Test the model
-python scripts/evaluate.py
+# Test the model (config auto-detected from checkpoint directory)
+python scripts/evaluate.py --checkpoint checkpoints/model.safetensors
 
 # Try the model interactively
 python scripts/interactive.py --checkpoint checkpoints/model.safetensors
@@ -41,12 +41,18 @@ python scripts/interactive.py --checkpoint checkpoints/model.safetensors
 
 ```text
 math-llm/
+├── config/                # Model configuration YAML files
+│   ├── standard-small.yaml
+│   ├── standard-medium.yaml
+│   ├── universal-small.yaml
+│   └── ...
 ├── scripts/
 │   ├── generate_data.py    # Data generation
 │   ├── train.py           # Training script
 │   ├── evaluate.py        # Evaluation script
 │   └── interactive.py     # Interactive inference
 ├── src/
+│   ├── config.py          # Configuration loading
 │   ├── model.py           # Model architecture
 │   ├── tokenizer.py       # Custom tokenizer
 │   └── data.py            # Data loading utilities
@@ -82,12 +88,12 @@ python scripts/generate_data.py --num-examples 100000 --max-digits 3 --reversed-
 The training script supports comprehensive configuration with colored logging and W&B integration:
 
 ```bash
-# Basic training with default settings
-python scripts/train.py
+# Train with standard small model
+python scripts/train.py --config config/standard-small.yaml
 
-# Custom configuration
+# Train with different model configuration
 python scripts/train.py \
-  --model-size medium \
+  --config config/standard-medium.yaml \
   --batch-size 64 \
   --learning-rate 2e-4 \
   --num-epochs 20 \
@@ -96,17 +102,17 @@ python scripts/train.py \
   --output-dir checkpoints/experiment1
 
 # Training without W&B logging
-python scripts/train.py --no-wandb
+python scripts/train.py --config config/standard-small.yaml --no-wandb
 
 # Resume from checkpoint
-python scripts/train.py --output-dir checkpoints/experiment1
+python scripts/train.py --config config/standard-small.yaml --output-dir checkpoints/experiment1 --resume
 ```
 
 #### Training Arguments
 
 **Model Configuration:**
 
-- `--model-size`: Model size (`small`, `medium`, `large`) - default: `small`
+- `--config`: Path to model configuration YAML file (required)
 - `--max-length`: Maximum sequence length - default: `128`
 
 **Training Hyperparameters:**
@@ -149,16 +155,18 @@ python scripts/train.py --output-dir checkpoints/experiment1
 Training generates several output files in the checkpoint directory:
 
 - `pytorch_model.bin`: Final trained model weights
+- `model_config.yaml`: Model configuration (copied from input config)
 - `training_config.json`: Complete training configuration
 - `test_results.json`: Final evaluation metrics
 - `logs/training.log`: Detailed training logs with timestamps
 
 ### Evaluation
 
-The evaluation script computes exact match accuracy and token-level accuracy on test data:
+The evaluation script computes exact match accuracy and token-level accuracy on test data.
+The model configuration is automatically detected from the checkpoint directory (`model_config.yaml`).
 
 ```bash
-# Basic evaluation on test set (final model)
+# Basic evaluation on test set (config auto-detected)
 python scripts/evaluate.py --checkpoint checkpoints/model.safetensors
 
 # Evaluate specific checkpoint
@@ -169,10 +177,10 @@ python scripts/evaluate.py \
   --checkpoint checkpoints/model.safetensors \
   --data-path data/custom_test.json
 
-# Custom model size and batch size
+# Override config for older checkpoints without model_config.yaml
 python scripts/evaluate.py \
-  --checkpoint checkpoints/model.safetensors \
-  --model-size medium \
+  --checkpoint old_checkpoints/model.bin \
+  --config config/standard-small.yaml \
   --batch-size 128
 
 # Save results to file
@@ -189,7 +197,7 @@ python scripts/evaluate.py \
 
 **Model Configuration:**
 
-- `--model-size`: Model size (`small`, `medium`, `large`) - default: `small`
+- `--config`: Path to model configuration YAML file (auto-detected from checkpoint dir if not specified)
 
 **Data Options:**
 
@@ -214,17 +222,17 @@ python scripts/evaluate.py \
 
 ### Interactive Inference
 
-Test your trained model interactively by providing arithmetic expressions and seeing the model's completions:
+Test your trained model interactively by providing arithmetic expressions and seeing the model's completions.
+The model configuration is automatically detected from the checkpoint directory (`model_config.yaml`).
 
 ```bash
-# Basic interactive session
+# Basic interactive session (config auto-detected)
 python scripts/interactive.py --checkpoint checkpoints/model.safetensors
 
-# Use specific model size and generation settings
+# Override config for older checkpoints
 python scripts/interactive.py \
   --checkpoint checkpoints/checkpoint-1000/model.safetensors \
-  --model-size medium \
-  --temperature 0.2 \
+  --config config/standard-medium.yaml \
   --max-new-tokens 15
 ```
 
@@ -236,12 +244,11 @@ python scripts/interactive.py \
 
 **Model Configuration:**
 
-- `--model-size`: Model size (`small`, `medium`, `large`) - default: `small`
+- `--config`: Path to model configuration YAML file (auto-detected from checkpoint dir if not specified)
 
 **Generation Settings:**
 
-- `--max-new-tokens`: Maximum tokens to generate - default: `20`
-- `--temperature`: Sampling temperature (lower = more deterministic) - default: `0.1`
+- `--max-new-tokens`: Maximum tokens to generate - default: `512`
 
 **System:**
 

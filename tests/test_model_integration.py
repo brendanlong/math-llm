@@ -2,8 +2,19 @@
 
 import torch
 
-from src.model import create_small_model
+from src.config import ModelConfig
+from src.model import create_model_from_config
 from src.tokenizer import VOCAB, VOCAB_SIZE, tokenizer
+
+# Test config matching the original small model
+SMALL_CONFIG = ModelConfig(
+    architecture="standard",
+    d_model=256,
+    n_layers=4,
+    n_heads=4,
+    d_ff=512,
+    dropout=0.1,
+)
 
 
 class TestModelIntegration:
@@ -11,9 +22,9 @@ class TestModelIntegration:
 
     def test_model_tokenizer_compatibility(
         self,
-    ):
+    ) -> None:
         """Test model works correctly with tokenizer."""
-        model = create_small_model()
+        model = create_model_from_config(SMALL_CONFIG)
 
         # Test expressions
         expressions = ["1+2=", "9+8=", "0+0="]
@@ -38,9 +49,9 @@ class TestModelIntegration:
 
     def test_batch_processing(
         self,
-    ):
+    ) -> None:
         """Test model with batch of inputs."""
-        model = create_small_model()
+        model = create_model_from_config(SMALL_CONFIG)
 
         expressions = ["1+2=", "3+4=", "5+6="]
         tokens_list = [tokenizer.encode(expr) for expr in expressions]

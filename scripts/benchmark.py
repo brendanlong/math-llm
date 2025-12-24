@@ -24,9 +24,10 @@ from transformers.training_args import TrainingArguments
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
 
+from src.config import load_config
 from src.data import ArithmeticDataset
 from src.generation import generate_addition_examples
-from src.model import Model, ModelSizeStr, create_model
+from src.model import Model, create_model_from_config
 from src.tokenizer import tokenizer
 from src.training import (
     compute_metrics,
@@ -243,9 +244,10 @@ def run_benchmark() -> list[BenchmarkResult]:
     setup_training_optimizations()
 
     # Simplified configuration for initial benchmark
-    model_sizes: list[ModelSizeStr] = [
-        "xsmall",
-        "small",
+    # Use config files instead of model size strings
+    model_configs: list[tuple[str, Path]] = [
+        ("xsmall", Path("config/standard-xsmall.yaml")),
+        ("small", Path("config/standard-small.yaml")),
     ]  # Only run on small models for speed
     data_configs = [
         DataConfig(max_digits=1, max_operands=2, name="1d_2op"),
@@ -272,9 +274,10 @@ def run_benchmark() -> list[BenchmarkResult]:
 
         dataset = create_benchmark_dataset(examples, max_length)
 
-        for model_size in model_sizes:
-            logger.info(f"  Benchmarking {model_size} model")
-            model = create_model(model_size)
+        for model_name, config_path in model_configs:
+            logger.info(f"  Benchmarking {model_name} model")
+            config = load_config(config_path)
+            model = create_model_from_config(config)
             model.to(device)
             param_count = model.count_parameters()
 
@@ -353,7 +356,7 @@ def run_benchmark() -> list[BenchmarkResult]:
             # Record the best result
             if optimal_result:
                 result = BenchmarkResult(
-                    model_size=model_size,
+                    model_size=model_name,
                     model_parameters=param_count,
                     data_config=data_config.name,
                     max_digits=data_config.max_digits,

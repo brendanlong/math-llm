@@ -3,22 +3,63 @@
 import pytest
 import torch
 
+from src.config import ModelConfig
 from src.model import (
     UniversalTransformerModel,
-    create_model,
-    create_ut_large_model,
-    create_ut_medium_model,
-    create_ut_small_model,
+    create_model_from_config,
 )
 from src.tokenizer import VOCAB, VOCAB_SIZE, tokenizer
 
+# Test configs matching the original factory functions
+UT_SMALL_CONFIG = ModelConfig(
+    architecture="universal",
+    d_model=256,
+    n_layers=2,
+    n_loops=4,
+    n_heads=4,
+    d_ff=512,
+    dropout=0.1,
+    use_loop_embeddings=True,
+)
 
-class TestUniversalTransformerFactories:
-    """Test Universal Transformer factory functions."""
+UT_MEDIUM_CONFIG = ModelConfig(
+    architecture="universal",
+    d_model=512,
+    n_layers=2,
+    n_loops=4,
+    n_heads=8,
+    d_ff=1024,
+    dropout=0.1,
+    use_loop_embeddings=True,
+)
+
+UT_LARGE_CONFIG = ModelConfig(
+    architecture="universal",
+    d_model=512,
+    n_layers=2,
+    n_loops=6,
+    n_heads=8,
+    d_ff=2048,
+    dropout=0.1,
+    use_loop_embeddings=True,
+)
+
+STANDARD_SMALL_CONFIG = ModelConfig(
+    architecture="standard",
+    d_model=256,
+    n_layers=4,
+    n_heads=4,
+    d_ff=512,
+    dropout=0.1,
+)
+
+
+class TestUniversalTransformerConfigs:
+    """Test Universal Transformer creation from configs."""
 
     def test_create_ut_small_model(self) -> None:
         """Test small UT model creation."""
-        model = create_ut_small_model()
+        model = create_model_from_config(UT_SMALL_CONFIG)
 
         assert isinstance(model, UniversalTransformerModel)
         assert model.d_model == 256
@@ -33,7 +74,7 @@ class TestUniversalTransformerFactories:
 
     def test_create_ut_medium_model(self) -> None:
         """Test medium UT model creation."""
-        model = create_ut_medium_model()
+        model = create_model_from_config(UT_MEDIUM_CONFIG)
 
         assert isinstance(model, UniversalTransformerModel)
         assert model.d_model == 512
@@ -46,7 +87,7 @@ class TestUniversalTransformerFactories:
 
     def test_create_ut_large_model(self) -> None:
         """Test large UT model creation."""
-        model = create_ut_large_model()
+        model = create_model_from_config(UT_LARGE_CONFIG)
 
         assert isinstance(model, UniversalTransformerModel)
         assert model.d_model == 512
@@ -58,11 +99,11 @@ class TestUniversalTransformerFactories:
         assert 500_000 < param_count < 10_000_000
 
     def test_all_ut_models_same_vocab_size(self) -> None:
-        """Test that all UT model factories use correct vocab size."""
+        """Test that all UT model configs use correct vocab size."""
         models = [
-            create_ut_small_model(),
-            create_ut_medium_model(),
-            create_ut_large_model(),
+            create_model_from_config(UT_SMALL_CONFIG),
+            create_model_from_config(UT_MEDIUM_CONFIG),
+            create_model_from_config(UT_LARGE_CONFIG),
         ]
 
         for model in models:
@@ -71,34 +112,30 @@ class TestUniversalTransformerFactories:
 
 
 class TestCreateModelWithArchitecture:
-    """Test create_model function with architecture parameter."""
+    """Test create_model_from_config function with different architectures."""
 
     def test_create_standard_model(self) -> None:
-        """Test creating standard model via create_model."""
-        model = create_model("small", "standard")
+        """Test creating standard model via create_model_from_config."""
+        model = create_model_from_config(STANDARD_SMALL_CONFIG)
         assert model.architecture == "standard"
         assert not isinstance(model, UniversalTransformerModel)
 
     def test_create_universal_model(self) -> None:
-        """Test creating universal model via create_model."""
-        model = create_model("small", "universal")
+        """Test creating universal model via create_model_from_config."""
+        model = create_model_from_config(UT_SMALL_CONFIG)
         assert model.architecture == "universal"
         assert isinstance(model, UniversalTransformerModel)
 
-    def test_default_architecture_is_standard(self) -> None:
-        """Test that default architecture is standard."""
-        model = create_model("small")
-        assert model.architecture == "standard"
-
-    def test_xsmall_not_available_for_universal(self) -> None:
-        """Test that xsmall size raises error for universal architecture."""
-        with pytest.raises(ValueError, match="xsmall size not available"):
-            create_model("xsmall", "universal")
-
-    def test_invalid_architecture_raises_error(self) -> None:
-        """Test that invalid architecture raises error."""
-        with pytest.raises(ValueError, match="Unknown architecture"):
-            create_model("small", "invalid")  # type: ignore[arg-type]
+    def test_universal_requires_n_loops(self) -> None:
+        """Test that universal architecture requires n_loops."""
+        with pytest.raises(ValueError, match="requires n_loops"):
+            ModelConfig(
+                architecture="universal",
+                d_model=256,
+                n_layers=2,
+                n_heads=4,
+                d_ff=512,
+            )
 
 
 class TestUniversalTransformerForward:
@@ -106,7 +143,7 @@ class TestUniversalTransformerForward:
 
     def test_forward_pass_shape(self) -> None:
         """Test forward pass produces correct output shape."""
-        model = create_ut_small_model()
+        model = create_model_from_config(UT_SMALL_CONFIG)
         batch_size = 2
         seq_len = 10
 
@@ -117,7 +154,7 @@ class TestUniversalTransformerForward:
 
     def test_forward_with_labels(self) -> None:
         """Test forward pass with labels returns loss and logits."""
-        model = create_ut_small_model()
+        model = create_model_from_config(UT_SMALL_CONFIG)
         batch_size = 2
         seq_len = 10
 
@@ -202,7 +239,7 @@ class TestUniversalTransformerIntegration:
 
     def test_model_tokenizer_compatibility(self) -> None:
         """Test UT model works correctly with tokenizer."""
-        model = create_ut_small_model()
+        model = create_model_from_config(UT_SMALL_CONFIG)
 
         expressions = ["1+2=", "9+8=", "0+0="]
 
@@ -226,7 +263,7 @@ class TestUniversalTransformerIntegration:
 
     def test_batch_processing(self) -> None:
         """Test UT model with batch of inputs."""
-        model = create_ut_small_model()
+        model = create_model_from_config(UT_SMALL_CONFIG)
 
         expressions = ["1+2=", "3+4=", "5+6="]
         tokens_list = [tokenizer.encode(expr) for expr in expressions]
@@ -250,7 +287,7 @@ class TestUniversalTransformerGeneration:
 
     def test_generate_produces_valid_tokens(self) -> None:
         """Test generation produces tokens in valid range."""
-        model = create_ut_small_model()
+        model = create_model_from_config(UT_SMALL_CONFIG)
         input_ids = torch.tensor([[1, 10, 2, 11]])  # "1+2="
 
         generated = model.generate(
@@ -269,7 +306,7 @@ class TestUniversalTransformerGeneration:
 
     def test_generate_stops_at_end_token(self) -> None:
         """Test generation stops at end token."""
-        model = create_ut_small_model()
+        model = create_model_from_config(UT_SMALL_CONFIG)
         # Use trained model behavior - just verify end token handling
         input_ids = torch.tensor([[1, 10, 2, 11]])  # "1+2="
 

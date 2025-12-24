@@ -15,13 +15,13 @@ Run all integration tests:
 
 Run specific tests:
     pytest -m integration tests/test_training_integration.py::test_standard_training_runs
-    pytest -m integration tests/test_training_integration.py::test_different_model_sizes_train
+    pytest -m integration tests/test_training_integration.py::test_different_model_configs_train
     pytest -m integration tests/test_training_integration.py::test_model_generation_after_training
     pytest -m slow_integration tests/test_training_integration.py::test_training_achieves_high_accuracy
 
 Test coverage:
 - Standard training mode (teacher forcing)
-- Different model sizes (xsmall, small)
+- Different model configs (xsmall, small)
 - Model generation after training
 - Training convergence to high accuracy (slow test)
 """
@@ -35,7 +35,7 @@ import pytest
 
 
 @pytest.mark.slow_integration
-def test_training_achieves_high_accuracy():
+def test_training_achieves_high_accuracy() -> None:
     """Test that model can achieve >99% token accuracy with optimal settings."""
     # Create temporary directory for test data and checkpoints
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -77,8 +77,8 @@ def test_training_achieves_high_accuracy():
         train_cmd = [
             "python",
             "scripts/train.py",
-            "--model-size",
-            "small",
+            "--config",
+            "config/standard-small.yaml",
             "--num-epochs",
             "100",
             "--batch-size",
@@ -129,9 +129,11 @@ def test_training_achieves_high_accuracy():
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("model_size", ["xsmall", "small"])
-def test_different_model_sizes_train(model_size: str):
-    """Test that different model sizes can train without crashing."""
+@pytest.mark.parametrize(
+    "config_file", ["config/standard-xsmall.yaml", "config/standard-small.yaml"]
+)
+def test_different_model_configs_train(config_file: str) -> None:
+    """Test that different model configs can train without crashing."""
     # Create temporary directory for test data and checkpoints
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
@@ -143,7 +145,7 @@ def test_different_model_sizes_train(model_size: str):
         checkpoint_dir.mkdir()
 
         # Step 1: Generate small dataset
-        print(f"Generating test data for {model_size} model...")
+        print(f"Generating test data for {config_file}...")
         generate_cmd = [
             "python",
             "scripts/generate_data.py",
@@ -162,17 +164,20 @@ def test_different_model_sizes_train(model_size: str):
         result = subprocess.run(generate_cmd, capture_output=True, text=True)
         assert result.returncode == 0, f"Data generation failed: {result.stderr}"
 
-        # Step 2: Run training with specified model size
-        print(f"Running {model_size} model training...")
+        # Determine batch size based on config
+        batch_size = "4" if "small" in config_file else "8"
+
+        # Step 2: Run training with specified config
+        print(f"Running training with {config_file}...")
         train_cmd = [
             "python",
             "scripts/train.py",
-            "--model-size",
-            model_size,
+            "--config",
+            config_file,
             "--num-epochs",
             "1",
             "--batch-size",
-            "4" if model_size == "small" else "8",  # Smaller batch for larger model
+            batch_size,
             "--max-length",
             "32",
             "--learning-rate",
@@ -195,16 +200,14 @@ def test_different_model_sizes_train(model_size: str):
         ]
 
         result = subprocess.run(train_cmd, capture_output=True, text=True)
-        assert result.returncode == 0, (
-            f"{model_size} model training failed: {result.stderr}"
-        )
+        assert result.returncode == 0, f"{config_file} training failed: {result.stderr}"
 
         # Just verify training completed without crash
-        print(f"✅ {model_size} model training completed successfully")
+        print(f"✅ {config_file} training completed successfully")
 
 
 @pytest.mark.integration
-def test_standard_training_runs():
+def test_standard_training_runs() -> None:
     """Test that standard training mode runs without crashing."""
     # Create temporary directory for test data and checkpoints
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -241,8 +244,8 @@ def test_standard_training_runs():
         train_cmd = [
             "python",
             "scripts/train.py",
-            "--model-size",
-            "xsmall",
+            "--config",
+            "config/standard-xsmall.yaml",
             "--num-epochs",
             "1",
             "--batch-size",
@@ -276,7 +279,7 @@ def test_standard_training_runs():
 
 
 @pytest.mark.integration
-def test_model_generation_after_training():
+def test_model_generation_after_training() -> None:
     """Test that model can generate completions after training."""
     # Create temporary directory for test data and checkpoints
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -313,8 +316,8 @@ def test_model_generation_after_training():
         train_cmd = [
             "python",
             "scripts/train.py",
-            "--model-size",
-            "xsmall",
+            "--config",
+            "config/standard-xsmall.yaml",
             "--num-epochs",
             "5",
             "--batch-size",
@@ -354,14 +357,12 @@ def test_model_generation_after_training():
         assert model_files, "No model checkpoint found after training"
         model_path = model_files[0]
 
-        # Test with evaluate script instead since it's non-interactive
+        # Test with evaluate script - config is auto-detected from checkpoint dir
         eval_cmd = [
             "python",
             "scripts/evaluate.py",
             "--checkpoint",
             str(model_path),
-            "--model-size",
-            "xsmall",
             "--data-path",
             str(data_dir / "test.json"),
             "--batch-size",
