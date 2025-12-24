@@ -99,28 +99,27 @@ def generate_benchmark_data(
     )
 
 
-def create_benchmark_dataset(examples: list[str], max_length: int) -> ArithmeticDataset:
-    """Create dataset from examples."""
-    # Create dataset dict format expected by ArithmeticDataset
-    dataset_dict = {
-        "examples": examples,
-        "metadata": {
-            "longest_example_length": max_length,
-        },
-    }
+def create_benchmark_dataset(
+    examples: list[str], max_length: int, temp_dir: str
+) -> ArithmeticDataset:
+    """Create dataset from examples.
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(dataset_dict, f)
-        temp_path = f.name
+    Args:
+        examples: List of example strings
+        max_length: Maximum sequence length
+        temp_dir: Temporary directory to store the data file (must stay alive
+            while dataset is in use since data is streamed)
+    """
+    # Write examples in JSONL format (one per line)
+    temp_path = os.path.join(temp_dir, "benchmark.jsonl")
+    with open(temp_path, "w") as f:
+        for example in examples:
+            f.write(example + "\n")
 
-    try:
-        dataset = ArithmeticDataset(
-            data_path=temp_path,
-            max_length=max_length,
-        )
-        return dataset
-    finally:
-        os.unlink(temp_path)
+    return ArithmeticDataset(
+        data_path=temp_path,
+        max_length=max_length,
+    )
 
 
 def benchmark_training_step(
@@ -261,62 +260,34 @@ def run_benchmark() -> list[BenchmarkResult]:
 
     results = []
 
-    for data_config in data_configs:
-        logger.info(f"Data config: {data_config.name}")
+    # Use a temporary directory for streaming datasets
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for data_config in data_configs:
+            logger.info(f"Data config: {data_config.name}")
 
-        # Generate benchmark data once per data config
-        examples = generate_benchmark_data(
-            max_digits=data_config.max_digits,
-            max_operands=data_config.max_operands,
-            num_examples=500,  # Small dataset for speed
-        )
-        max_length = max(len(example) for example in examples)
-
-        dataset = create_benchmark_dataset(examples, max_length)
-
-        for model_name, config_path in model_configs:
-            logger.info(f"  Benchmarking {model_name} model")
-            config = load_config(config_path)
-            model = create_model_from_config(config)
-            model.to(device)
-            param_count = model.count_parameters()
-
-            # Find optimal batch size by starting large and working down
-            optimal_batch_size = None
-            optimal_result = None
-
-            # First, always test batch_size=1 for baseline (no memory check)
-            batch_size = 1
-            dataloader = DataLoader(
-                dataset,
-                batch_size=batch_size,
-                shuffle=True,
-                num_workers=0,
+            # Generate benchmark data once per data config
+            examples = generate_benchmark_data(
+                max_digits=data_config.max_digits,
+                max_operands=data_config.max_operands,
+                num_examples=500,  # Small dataset for speed
             )
+            max_length = max(len(example) for example in examples)
 
-            try:
-                iterations_per_sec, samples_per_sec = benchmark_training_step(
-                    model=model,
-                    dataloader=dataloader,
-                    device=device,
-                    num_steps=num_benchmark_steps,
-                    fp16=False,
-                )
+            dataset = create_benchmark_dataset(examples, max_length, temp_dir)
 
-                baseline_result = {
-                    "batch_size": batch_size,
-                    "iterations_per_second": iterations_per_sec,
-                    "samples_per_second": samples_per_sec,
-                }
-                logger.info(
-                    f"    Batch size 1: {iterations_per_sec:.1f} it/s, {samples_per_sec:.1f} samples/s"
-                )
-            except Exception as e:
-                logger.error(f"    Failed at batch size 1: {e}")
-                baseline_result = None
+            for model_name, config_path in model_configs:
+                logger.info(f"  Benchmarking {model_name} model")
+                config = load_config(config_path)
+                model = create_model_from_config(config)
+                model.to(device)
+                param_count = model.count_parameters()
 
-            # Now find the optimal batch size
-            for batch_size in batch_sizes_to_try:
+                # Find optimal batch size by starting large and working down
+                optimal_batch_size = None
+                optimal_result = None
+
+                # First, always test batch_size=1 for baseline (no memory check)
+                batch_size = 1
                 dataloader = DataLoader(
                     dataset,
                     batch_size=batch_size,
@@ -333,75 +304,107 @@ def run_benchmark() -> list[BenchmarkResult]:
                         fp16=False,
                     )
 
-                    logger.info(
-                        f"    Batch size {batch_size}: {iterations_per_sec:.1f} it/s, {samples_per_sec:.1f} samples/s"
-                    )
-
-                    # This is our optimal batch size
-                    optimal_batch_size = batch_size
-                    optimal_result = {
+                    baseline_result = {
                         "batch_size": batch_size,
                         "iterations_per_second": iterations_per_sec,
                         "samples_per_second": samples_per_sec,
                     }
-                    break  # Found the largest working batch size
-
+                    logger.info(
+                        f"    Batch size 1: {iterations_per_sec:.1f} it/s, {samples_per_sec:.1f} samples/s"
+                    )
                 except Exception as e:
-                    if "out of memory" in str(e).lower():
-                        logger.info(f"    Batch size {batch_size}: OOM, trying smaller")
-                    else:
-                        logger.error(f"    Batch size {batch_size} failed: {e}")
-                    continue
+                    logger.error(f"    Failed at batch size 1: {e}")
+                    baseline_result = None
 
-            # Record the best result
-            if optimal_result:
-                result = BenchmarkResult(
-                    model_size=model_name,
-                    model_parameters=param_count,
-                    data_config=data_config.name,
-                    max_digits=data_config.max_digits,
-                    max_operands=data_config.max_operands,
-                    fp16=False,
-                    optimal_batch_size=optimal_batch_size,
-                    optimal_iterations_per_second=round(
-                        optimal_result["iterations_per_second"], 2
-                    ),
-                    optimal_samples_per_second=round(
-                        optimal_result["samples_per_second"], 2
-                    ),
-                    baseline_batch_size=1,
-                    baseline_samples_per_second=round(
-                        baseline_result["samples_per_second"], 2
+                # Now find the optimal batch size
+                for batch_size in batch_sizes_to_try:
+                    dataloader = DataLoader(
+                        dataset,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=0,
                     )
-                    if baseline_result
-                    else None,
-                    speedup=round(
-                        optimal_result["samples_per_second"]
-                        / baseline_result["samples_per_second"],
-                        2,
-                    )
-                    if baseline_result
-                    else None,
-                    avg_sequence_length=round(
-                        sum(len(tokenizer.encode(ex)) for ex in examples[:50]) / 50,
-                        1,
-                    ),
-                )
-                results.append(result)
 
-                logger.info(
-                    f"    ✓ Optimal: batch_size={optimal_batch_size}, {optimal_result['samples_per_second']:.1f} samples/s"
-                )
-                if (
-                    baseline_result
-                    and optimal_batch_size is not None
-                    and optimal_batch_size > 1
-                ):
-                    speedup = (
-                        optimal_result["samples_per_second"]
-                        / baseline_result["samples_per_second"]
+                    try:
+                        iterations_per_sec, samples_per_sec = benchmark_training_step(
+                            model=model,
+                            dataloader=dataloader,
+                            device=device,
+                            num_steps=num_benchmark_steps,
+                            fp16=False,
+                        )
+
+                        logger.info(
+                            f"    Batch size {batch_size}: {iterations_per_sec:.1f} it/s, {samples_per_sec:.1f} samples/s"
+                        )
+
+                        # This is our optimal batch size
+                        optimal_batch_size = batch_size
+                        optimal_result = {
+                            "batch_size": batch_size,
+                            "iterations_per_second": iterations_per_sec,
+                            "samples_per_second": samples_per_sec,
+                        }
+                        break  # Found the largest working batch size
+
+                    except Exception as e:
+                        if "out of memory" in str(e).lower():
+                            logger.info(
+                                f"    Batch size {batch_size}: OOM, trying smaller"
+                            )
+                        else:
+                            logger.error(f"    Batch size {batch_size} failed: {e}")
+                        continue
+
+                # Record the best result
+                if optimal_result:
+                    result = BenchmarkResult(
+                        model_size=model_name,
+                        model_parameters=param_count,
+                        data_config=data_config.name,
+                        max_digits=data_config.max_digits,
+                        max_operands=data_config.max_operands,
+                        fp16=False,
+                        optimal_batch_size=optimal_batch_size,
+                        optimal_iterations_per_second=round(
+                            optimal_result["iterations_per_second"], 2
+                        ),
+                        optimal_samples_per_second=round(
+                            optimal_result["samples_per_second"], 2
+                        ),
+                        baseline_batch_size=1,
+                        baseline_samples_per_second=round(
+                            baseline_result["samples_per_second"], 2
+                        )
+                        if baseline_result
+                        else None,
+                        speedup=round(
+                            optimal_result["samples_per_second"]
+                            / baseline_result["samples_per_second"],
+                            2,
+                        )
+                        if baseline_result
+                        else None,
+                        avg_sequence_length=round(
+                            sum(len(tokenizer.encode(ex)) for ex in examples[:50]) / 50,
+                            1,
+                        ),
                     )
-                    logger.info(f"    → Speedup vs batch_size=1: {speedup:.2f}x")
+                    results.append(result)
+
+                    logger.info(
+                        f"    ✓ Optimal: batch_size={optimal_batch_size}, {optimal_result['samples_per_second']:.1f} samples/s"
+                    )
+                    if (
+                        baseline_result
+                        and optimal_batch_size is not None
+                        and optimal_batch_size > 1
+                    ):
+                        speedup = (
+                            optimal_result["samples_per_second"]
+                            / baseline_result["samples_per_second"]
+                        )
+                        logger.info(f"    → Speedup vs batch_size=1: {speedup:.2f}x")
 
     return results
 

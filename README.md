@@ -175,7 +175,7 @@ python scripts/evaluate.py --checkpoint checkpoints/checkpoint-1000/model.safete
 # Evaluate specific data file
 python scripts/evaluate.py \
   --checkpoint checkpoints/model.safetensors \
-  --data-path data/custom_test.json
+  --data-path data/custom_test.jsonl
 
 # Override config for older checkpoints without model_config.yaml
 python scripts/evaluate.py \
@@ -202,7 +202,7 @@ python scripts/evaluate.py \
 **Data Options:**
 
 - `--data-path`: Specific evaluation data file (overrides `--data-dir`)
-- `--data-dir`: Directory containing test.json - default: `data`
+- `--data-dir`: Directory containing test.jsonl - default: `data`
 
 **Evaluation Settings:**
 

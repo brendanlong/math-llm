@@ -1,6 +1,5 @@
 """Tests for data loading utilities."""
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -9,7 +8,7 @@ import torch
 from torch.utils.data import SequentialSampler
 
 from src.data import ArithmeticDataset, create_dataloader, load_splits
-from src.tokenizer import VOCAB_SIZE, tokenizer
+from src.tokenizer import tokenizer
 
 
 @pytest.fixture
@@ -29,19 +28,10 @@ def sample_data() -> list[str]:
 def temp_data_file(
     sample_data: list[str],
 ) -> Path:
-    """Create a temporary JSON file with sample data in new format."""
-    dataset = {
-        "examples": sample_data,
-        "metadata": {
-            "split": "test",
-            "num_examples": len(sample_data),
-            "vocab_size": VOCAB_SIZE,
-            "format": "operand1+operand2=<think>...</think>result<end>",
-        },
-    }
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(dataset, f)
+    """Create a temporary JSONL file with sample data (one example per line)."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+        for example in sample_data:
+            f.write(example + "\n")
         return Path(f.name)
 
 
@@ -51,7 +41,7 @@ class TestArithmeticDataset:
     def test_dataset_length(
         self,
         temp_data_file: Path,
-        sample_data: list[dict[str, str]],
+        sample_data: list[str],
     ) -> None:
         """Test that dataset returns correct length."""
         dataset = ArithmeticDataset(temp_data_file, max_length=32)
@@ -145,12 +135,8 @@ class TestArithmeticDataset:
         # Create a very long expression
         long_expression = "1+2=3<end>" * 10  # Much longer than 32 tokens
 
-        dataset = {
-            "examples": [long_expression],
-        }
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(dataset, f)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(long_expression + "\n")
             temp_file = Path(f.name)
 
         dataset = ArithmeticDataset(temp_file, max_length=32)
@@ -174,6 +160,7 @@ class TestDataLoader:
             batch_size=2,
             shuffle=False,
             max_length=16,
+            num_workers=0,
         )
 
         # Test basic properties
@@ -191,22 +178,22 @@ class TestDataLoader:
 
     def test_load_splits(
         self,
-        sample_data: list[dict[str, str]],
+        sample_data: list[str],
     ) -> None:
         """Test loading train/val/test splits."""
         # Create temporary directory with split files
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
 
-            # Create split files in new format
+            # Create split files in JSONL format (one example per line)
             for split in ["train", "val", "test"]:
-                dataset = {"examples": sample_data}
-                with open(temp_path / f"{split}.json", "w") as f:
-                    json.dump(dataset, f)
+                with open(temp_path / f"{split}.jsonl", "w") as f:
+                    for example in sample_data:
+                        f.write(example + "\n")
 
-            # Load splits
+            # Load splits (use num_workers=0 to avoid multiprocessing in tests)
             train_loader, val_loader, test_loader = load_splits(
-                data_dir=temp_path, batch_size=2, max_length=16
+                data_dir=temp_path, batch_size=2, max_length=16, num_workers=0
             )
 
             # Test that all loaders work
@@ -224,7 +211,9 @@ class TestDataLoader:
         temp_data_file: Path,
     ) -> None:
         """Test that CUDA memory pinning is set correctly."""
-        dataloader = create_dataloader(data_path=temp_data_file, batch_size=1)
+        dataloader = create_dataloader(
+            data_path=temp_data_file, batch_size=1, num_workers=0
+        )
 
         # pin_memory should be True if CUDA is available
         expected_pin_memory = torch.cuda.is_available()
@@ -268,7 +257,7 @@ class TestDataIntegration:
     ) -> None:
         """Test that batched data maintains consistency."""
         dataloader = create_dataloader(
-            data_path=temp_data_file, batch_size=3, shuffle=False
+            data_path=temp_data_file, batch_size=3, shuffle=False, num_workers=0
         )
 
         batch = next(iter(dataloader))

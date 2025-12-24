@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Count duplicate examples in training data."""
 
-import json
 from collections import Counter
 from pathlib import Path
 
@@ -9,11 +8,14 @@ from pathlib import Path
 def count_duplicates(data_path: Path) -> None:
     """Count and display duplicate examples in the dataset."""
     print(f"Loading {data_path}...")
-    with open(data_path, "r") as f:
-        data = json.load(f)
 
-    # Extract the examples list
-    examples = data["examples"]
+    # Read JSONL file (one example per line)
+    examples: list[str] = []
+    with open(data_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                examples.append(line)
 
     # Count occurrences
     counter = Counter(examples)
@@ -37,7 +39,7 @@ def count_duplicates(data_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    data_path = Path("data/train.json")
+    data_path = Path("data/train.jsonl")
     if not data_path.exists():
         print(f"Error: {data_path} not found")
         exit(1)

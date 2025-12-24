@@ -133,7 +133,7 @@ def main() -> None:
     parser.add_argument(
         "--data-path",
         type=Path,
-        default=Path("data/train.json"),
+        default=Path("data/train.jsonl"),
         help="Path to data file for benchmarking",
     )
 

@@ -22,16 +22,15 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.generation import generate_addition_examples_parallel, split_data
-from src.types import DatasetDict, DatasetMetadata
+from src.types import DatasetMetadata
 
 
 def save_dataset(
     examples: list[str],
     output_path: Path,
     split_name: str,
-    metadata: DatasetMetadata | None = None,
 ) -> None:
-    """Save dataset to JSON file.
+    """Save dataset to JSONL file (one example per line for streaming).
 
     Args:
         examples: List of examples to save
@@ -40,16 +39,27 @@ def save_dataset(
     """
     output_path.mkdir(parents=True, exist_ok=True)
 
-    dataset: DatasetDict = {"examples": examples}
-    if metadata:
-        dataset["metadata"] = metadata
+    # Save to JSONL file (one example per line for streaming)
+    jsonl_file = output_path / f"{split_name}.jsonl"
+    with open(jsonl_file, "w") as f:
+        for example in examples:
+            f.write(example + "\n")
 
-    # Save to JSON file
-    output_file = output_path / f"{split_name}.json"
-    with open(output_file, "w") as f:
-        json.dump(dataset, f, indent=2)
+    print(f"Saved {len(examples)} examples to {jsonl_file}")
 
-    print(f"Saved {len(dataset['examples'])} examples to {output_file}")
+
+def save_metadata(metadata: DatasetMetadata, output_path: Path) -> None:
+    """Save dataset metadata to a separate JSON file.
+
+    Args:
+        metadata: Metadata to save
+        output_path: Directory to save the file
+    """
+    output_path.mkdir(parents=True, exist_ok=True)
+    metadata_file = output_path / "metadata.json"
+    with open(metadata_file, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"Saved metadata to {metadata_file}")
 
 
 def main():
@@ -199,9 +209,10 @@ def main():
 
     # Save datasets
     print(f"\nSaving datasets to {args.output_dir}/...")
-    save_dataset(train_examples, args.output_dir, "train", metadata)
-    save_dataset(val_examples, args.output_dir, "val", metadata)
-    save_dataset(test_examples, args.output_dir, "test", metadata)
+    save_dataset(train_examples, args.output_dir, "train")
+    save_dataset(val_examples, args.output_dir, "val")
+    save_dataset(test_examples, args.output_dir, "test")
+    save_metadata(metadata, args.output_dir)
 
     print("\nData generation complete!")
 

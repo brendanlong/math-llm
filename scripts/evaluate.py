@@ -354,13 +354,13 @@ def main() -> None:
     parser.add_argument(
         "--data-path",
         type=Path,
-        help="Path to evaluation data JSON file (if not provided, uses test.json from data dir)",
+        help="Path to evaluation data JSONL file (if not provided, uses test.jsonl from data dir)",
     )
     parser.add_argument(
         "--data-dir",
         type=Path,
         default=Path("data"),
-        help="Directory containing train/val/test JSON files",
+        help="Directory containing train/val/test JSONL files",
     )
 
     # Evaluation arguments
@@ -425,7 +425,7 @@ def main() -> None:
     if args.data_path:
         data_path: Path = args.data_path
     else:
-        data_path = args.data_dir / "test.json"
+        data_path = args.data_dir / "test.jsonl"
 
     # Evaluate model
     logging.info(f"Evaluating on {data_path}")

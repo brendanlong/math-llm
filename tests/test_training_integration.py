@@ -68,9 +68,9 @@ def test_training_achieves_high_accuracy() -> None:
         assert result.returncode == 0, f"Data generation failed: {result.stderr}"
 
         # Verify data was generated
-        assert (data_dir / "train.json").exists()
-        assert (data_dir / "val.json").exists()
-        assert (data_dir / "test.json").exists()
+        assert (data_dir / "train.jsonl").exists()
+        assert (data_dir / "val.jsonl").exists()
+        assert (data_dir / "test.jsonl").exists()
 
         # Step 2: Run training with optimized parameters
         print("Running training...")
@@ -364,7 +364,7 @@ def test_model_generation_after_training() -> None:
             "--checkpoint",
             str(model_path),
             "--data-path",
-            str(data_dir / "test.json"),
+            str(data_dir / "test.jsonl"),
             "--batch-size",
             "8",
         ]
