@@ -23,7 +23,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.data import create_dataloader
 from src.model import (
-    ArithmeticModel,
+    ArchitectureStr,
+    Model,
     ModelSizeStr,
     create_model,
 )
@@ -126,17 +127,22 @@ def setup_logging() -> None:
     logger.addHandler(console_handler)
 
 
-def load_model(checkpoint_path: Path, model_size: ModelSizeStr) -> ArithmeticModel:
+def load_model(
+    checkpoint_path: Path,
+    model_size: ModelSizeStr,
+    architecture: ArchitectureStr = "standard",
+) -> Model:
     """Load model from checkpoint.
 
     Args:
         checkpoint_path: Path to model checkpoint
         model_size: Model size ("small", "medium", or "large")
+        architecture: Model architecture ("standard" or "universal")
 
     Returns:
         Loaded model
     """
-    model = create_model(model_size)
+    model = create_model(model_size, architecture)
 
     # Load checkpoint - handle different formats
     if checkpoint_path.suffix == ".safetensors":
@@ -160,7 +166,7 @@ def load_model(checkpoint_path: Path, model_size: ModelSizeStr) -> ArithmeticMod
 
 
 def compute_exact_match_accuracy(
-    model: ArithmeticModel,
+    model: Model,
     dataloader: DataLoader[dict[str, torch.Tensor]],
     device: torch.device,
     max_new_tokens: int = 512,
@@ -227,7 +233,7 @@ def compute_exact_match_accuracy(
 
 
 def compute_token_accuracy(
-    model: ArithmeticModel,
+    model: Model,
     dataloader: DataLoader[dict[str, torch.Tensor]],
     device: torch.device,
 ) -> float:
@@ -288,7 +294,7 @@ def compute_token_accuracy(
 
 
 def evaluate_on_dataset(
-    model: ArithmeticModel,
+    model: Model,
     data_path: Path,
     device: torch.device,
     batch_size: int = 64,
@@ -349,6 +355,13 @@ def main() -> None:
         choices=["xsmall", "small", "medium", "large"],
         help="Model size configuration",
     )
+    parser.add_argument(
+        "--architecture",
+        type=str,
+        default="standard",
+        choices=["standard", "universal"],
+        help="Model architecture: standard transformer or universal transformer",
+    )
 
     # Data arguments
     parser.add_argument(
@@ -406,8 +419,13 @@ def main() -> None:
     # Initialize tokenizer
 
     # Load model
-    logging.info(f"Loading model from {args.checkpoint}")
-    model = load_model(args.checkpoint, args.model_size)
+    arch_desc = (
+        "Universal Transformer"
+        if args.architecture == "universal"
+        else "standard transformer"
+    )
+    logging.info(f"Loading {args.model_size} {arch_desc} from {args.checkpoint}")
+    model = load_model(args.checkpoint, args.model_size, args.architecture)
     model.to(device)
 
     # Determine data path

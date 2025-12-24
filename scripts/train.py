@@ -96,6 +96,13 @@ def main() -> None:
         choices=["xsmall", "small", "medium", "large"],
         help="Model size configuration",
     )
+    parser.add_argument(
+        "--architecture",
+        type=str,
+        default="standard",
+        choices=["standard", "universal"],
+        help="Model architecture: standard transformer or universal transformer",
+    )
 
     # Data arguments
     parser.add_argument(
@@ -241,13 +248,17 @@ def main() -> None:
     else:
         assert actual_max_length == args.max_length
 
+    # Architecture suffix for naming
+    arch_suffix = "-ut" if args.architecture == "universal" else ""
+
     # Initialize W&B
     if not args.no_wandb:
-        wandb_name = f"arithmetic-{args.model_size}-{args.batch_size}batch-{args.learning_rate}lr"
+        wandb_name = f"arithmetic-{args.model_size}{arch_suffix}-{args.batch_size}batch-{args.learning_rate}lr"
         wandb.init(
             project="math-llm",
             config={
                 "model_size": args.model_size,
+                "architecture": args.architecture,
                 "batch_size": args.batch_size,
                 "learning_rate": args.learning_rate,
                 "num_epochs": args.num_epochs,
@@ -262,9 +273,18 @@ def main() -> None:
     logger.info(f"Test samples: {len(cast(Sized, test_loader.dataset))}")
 
     # Create model
-    logger.info(f"Creating {args.model_size} model")
-    model = create_model(args.model_size)
+    arch_desc = (
+        "Universal Transformer"
+        if args.architecture == "universal"
+        else "standard transformer"
+    )
+    logger.info(f"Creating {args.model_size} {arch_desc}")
+    model = create_model(args.model_size, args.architecture)
     logger.info(f"Model parameters: {model.count_parameters():,}")
+    if args.architecture == "universal":
+        logger.info(
+            f"Universal Transformer: {model.n_layers} layers × {model.n_loops} loops = {model.sequential_depth} sequential depth"
+        )
 
     # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -298,7 +318,7 @@ def main() -> None:
         save_total_limit=3,  # Keep only 3 most recent checkpoints
         # W&B integration
         report_to="wandb" if not args.no_wandb else "none",
-        run_name=f"arithmetic-{args.model_size}",
+        run_name=f"arithmetic-{args.model_size}{arch_suffix}",
         # Other settings
         seed=args.seed,
         load_best_model_at_end=True,
@@ -320,11 +340,16 @@ def main() -> None:
     # Save training configuration
     config = {
         "model_size": args.model_size,
+        "architecture": args.architecture,
         "model_parameters": model.count_parameters(),
         "vocab_size": VOCAB_SIZE,
         "max_length": args.max_length,
         "training_args": training_args.to_dict(),
     }
+    if args.architecture == "universal":
+        config["n_layers"] = model.n_layers
+        config["n_loops"] = model.n_loops
+        config["sequential_depth"] = model.sequential_depth
 
     config_path = Path(args.output_dir) / "training_config.json"
     with open(config_path, "w") as f:

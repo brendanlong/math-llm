@@ -195,6 +195,9 @@ class TransformerBlock(nn.Module):
 class ArithmeticModel(nn.Module):
     """Small transformer model for arithmetic tasks."""
 
+    # Class attribute to identify architecture type
+    architecture: str = "standard"
+
     def __init__(
         self,
         vocab_size: int = VOCAB_SIZE,
@@ -357,6 +360,209 @@ class ArithmeticModel(nn.Module):
         return next(self.parameters()).device
 
 
+class UniversalTransformerModel(nn.Module):
+    """Universal Transformer model with weight sharing across depth.
+
+    Unlike standard transformers with N unique layers, Universal Transformers
+    apply a smaller set of layers repeatedly in a loop. This allows the model
+    to learn iterative algorithms where the same computation is applied
+    multiple times, potentially specializing at each loop iteration.
+
+    For example, UT-2L-4loop has 2 unique layers applied 4 times each,
+    giving the same sequential depth (8) as an 8-layer standard transformer
+    but with 1/4 the parameters.
+    """
+
+    # Class attribute to identify architecture type
+    architecture: str = "universal"
+
+    def __init__(
+        self,
+        vocab_size: int = VOCAB_SIZE,
+        d_model: int = 256,
+        n_layers: int = 2,
+        n_loops: int = 4,
+        n_heads: int = 4,
+        d_ff: int = 1024,
+        max_seq_len: int = MAX_SEQUENCE_LENGTH,
+        dropout: float = 0.1,
+        use_loop_embeddings: bool = True,
+    ):
+        """Initialize the Universal Transformer model.
+
+        Args:
+            vocab_size: Size of vocabulary (default from tokenizer)
+            d_model: Model dimension
+            n_layers: Number of unique transformer layers (weight-shared blocks)
+            n_loops: Number of times to apply the layer stack
+            n_heads: Number of attention heads
+            d_ff: Feed-forward dimension
+            max_seq_len: Maximum sequence length
+            dropout: Dropout probability
+            use_loop_embeddings: Whether to add learnable loop position embeddings
+        """
+        super().__init__()
+
+        self.d_model = d_model
+        self.max_seq_len = max_seq_len
+        self.n_loops = n_loops
+        self.n_layers = n_layers
+        self.use_loop_embeddings = use_loop_embeddings
+
+        # Embedding layers
+        self.token_embedding = nn.Embedding(vocab_size, d_model)
+        self.n_heads = n_heads
+
+        # Optional loop embeddings to help model distinguish iterations
+        if use_loop_embeddings:
+            self.loop_embeddings = nn.Embedding(n_loops, d_model)
+
+        # Transformer layers (shared across loops)
+        self.layers = nn.ModuleList(
+            [TransformerBlock(d_model, n_heads, d_ff, dropout) for _ in range(n_layers)]
+        )
+
+        # Output projection
+        self.ln_f = nn.LayerNorm(d_model)
+        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+
+        # Initialize weights
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module: nn.Module) -> None:
+        """Initialize model weights."""
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            bias = getattr(module, "bias", None)
+            if bias is not None:
+                torch.nn.init.zeros_(bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        elif isinstance(module, nn.LayerNorm):
+            torch.nn.init.zeros_(module.bias)
+            torch.nn.init.ones_(module.weight)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        **_kwargs: Any,
+    ) -> dict[str, torch.Tensor] | torch.Tensor:
+        """Forward pass through the model.
+
+        Args:
+            input_ids: Input token IDs of shape (batch_size, seq_len)
+            attention_mask: Optional attention mask (unused)
+            labels: Optional labels for computing loss
+
+        Returns:
+            If labels provided: dict with 'loss' and 'logits'
+            Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
+        """
+        _, seq_len = input_ids.shape
+
+        # Token embeddings
+        x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
+        x = x * math.sqrt(self.d_model)  # Scale embeddings
+
+        # Build ALiBi bias
+        alibi_bias = build_alibi_bias(
+            self.n_heads, seq_len, input_ids.device, dtype=x.dtype
+        )
+
+        # Apply transformer layers repeatedly (Universal Transformer loop)
+        for loop_idx in range(self.n_loops):
+            # Optionally add loop embedding to help model track iteration
+            if self.use_loop_embeddings:
+                loop_emb = self.loop_embeddings(
+                    torch.tensor(loop_idx, device=input_ids.device)
+                )
+                x = x + loop_emb.unsqueeze(0).unsqueeze(0)
+
+            # Apply all layers in this loop iteration
+            for layer in self.layers:
+                x = layer(x, alibi_bias=alibi_bias)
+
+        # Final layer norm and projection
+        x = self.ln_f(x)
+        logits = self.lm_head(x)  # (batch_size, seq_len, vocab_size)
+
+        # Compute loss if labels are provided
+        if labels is not None:
+            loss = compute_loss(logits, labels)
+            return {"loss": loss, "logits": logits}
+
+        return logits
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 20,
+        temperature: float = 1.0,
+        top_k: Optional[int] = None,
+        end_token_id: int = 12,
+    ) -> torch.Tensor:
+        """Generate tokens autoregressively.
+
+        Args:
+            input_ids: Initial input tokens of shape (batch_size, seq_len)
+            max_new_tokens: Maximum number of new tokens to generate
+            temperature: Sampling temperature
+            top_k: Optional top-k sampling
+            end_token_id: Token ID for end-of-sequence
+
+        Returns:
+            Generated tokens of shape (batch_size, seq_len + num_generated)
+        """
+        self.eval()
+
+        for _ in range(max_new_tokens):
+            # Get predictions for current sequence
+            with torch.no_grad():
+                outputs = self.forward(input_ids)
+                # Extract logits (forward returns dict when labels provided, tensor otherwise)
+                if isinstance(outputs, dict):
+                    logits = outputs["logits"]
+                else:
+                    logits = outputs
+
+                # Get logits for last token
+                logits = logits[:, -1, :] / temperature
+
+                # Apply top-k filtering if specified
+                if top_k is not None:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float("inf")
+
+                # Sample next token
+                probs = F.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+
+                # Append to sequence
+                input_ids = torch.cat([input_ids, next_token], dim=1)
+
+                # Stop if end token is generated
+                if next_token.item() == end_token_id:
+                    break
+
+        return input_ids
+
+    def count_parameters(self) -> int:
+        """Count total number of trainable parameters."""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+    @property
+    def device(self) -> torch.device:
+        """Get the device of the model."""
+        return next(self.parameters()).device
+
+    @property
+    def sequential_depth(self) -> int:
+        """Return effective sequential depth (n_layers * n_loops)."""
+        return self.n_layers * self.n_loops
+
+
 def create_extra_small_model() -> ArithmeticModel:
     """Create an extra-small model configuration."""
     return ArithmeticModel(
@@ -401,19 +607,99 @@ def create_large_model() -> ArithmeticModel:
     )
 
 
+# Universal Transformer factory functions
+
+
+def create_ut_small_model() -> UniversalTransformerModel:
+    """Create a small Universal Transformer (2 layers × 4 loops = 8 depth).
+
+    Compute-matched with an 8-layer standard transformer but with ~1/4 params.
+    Uses d_model=256, same as small standard model.
+    """
+    return UniversalTransformerModel(
+        d_model=256,
+        n_layers=2,
+        n_loops=4,
+        n_heads=4,
+        d_ff=512,
+        dropout=0.1,
+        use_loop_embeddings=True,
+    )
+
+
+def create_ut_medium_model() -> UniversalTransformerModel:
+    """Create a medium Universal Transformer (2 layers × 4 loops = 8 depth).
+
+    Uses d_model=512, same as medium standard model.
+    """
+    return UniversalTransformerModel(
+        d_model=512,
+        n_layers=2,
+        n_loops=4,
+        n_heads=8,
+        d_ff=1024,
+        dropout=0.1,
+        use_loop_embeddings=True,
+    )
+
+
+def create_ut_large_model() -> UniversalTransformerModel:
+    """Create a large Universal Transformer (2 layers × 6 loops = 12 depth).
+
+    Uses d_model=512, same as large standard model.
+    """
+    return UniversalTransformerModel(
+        d_model=512,
+        n_layers=2,
+        n_loops=6,
+        n_heads=8,
+        d_ff=2048,
+        dropout=0.1,
+        use_loop_embeddings=True,
+    )
+
+
 ModelSizeStr = Literal["xsmall", "small", "medium", "large"]
+ArchitectureStr = Literal["standard", "universal"]
+
+# Type alias for either model type
+Model = ArithmeticModel | UniversalTransformerModel
 
 
 def create_model(
     model_size: ModelSizeStr,
-) -> ArithmeticModel:
-    if model_size == "xsmall":
-        return create_extra_small_model()
-    elif model_size == "small":
-        return create_small_model()
-    elif model_size == "medium":
-        return create_medium_model()
-    elif model_size == "large":
-        return create_large_model()
+    architecture: ArchitectureStr = "standard",
+) -> Model:
+    """Create a model with the specified size and architecture.
+
+    Args:
+        model_size: Size configuration (xsmall, small, medium, large)
+        architecture: Architecture type (standard or universal)
+
+    Returns:
+        Model instance of the specified type
+    """
+    if architecture == "standard":
+        if model_size == "xsmall":
+            return create_extra_small_model()
+        elif model_size == "small":
+            return create_small_model()
+        elif model_size == "medium":
+            return create_medium_model()
+        elif model_size == "large":
+            return create_large_model()
+        else:
+            raise ValueError(f"Unknown model size: {model_size}")
+    elif architecture == "universal":
+        if model_size == "xsmall":
+            raise ValueError("xsmall size not available for universal transformer")
+        elif model_size == "small":
+            return create_ut_small_model()
+        elif model_size == "medium":
+            return create_ut_medium_model()
+        elif model_size == "large":
+            return create_ut_large_model()
+        else:
+            raise ValueError(f"Unknown model size: {model_size}")
     else:
-        raise ValueError(f"Unknown model size: {model_size}")
+        raise ValueError(f"Unknown architecture: {architecture}")

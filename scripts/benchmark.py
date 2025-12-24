@@ -26,7 +26,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.data import ArithmeticDataset
 from src.generation import generate_addition_examples
-from src.model import ArithmeticModel, ModelSizeStr, create_model
+from src.model import Model, ModelSizeStr, create_model
 from src.tokenizer import tokenizer
 from src.training import (
     compute_metrics,
@@ -123,7 +123,7 @@ def create_benchmark_dataset(examples: list[str], max_length: int) -> Arithmetic
 
 
 def benchmark_training_step(
-    model: ArithmeticModel,
+    model: Model,
     dataloader: DataLoader[Any],
     device: torch.device,
     num_steps: int = 20,  # Reduced for speed

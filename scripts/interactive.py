@@ -22,7 +22,8 @@ from safetensors.torch import load_file
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.model import (
-    ArithmeticModel,
+    ArchitectureStr,
+    Model,
     ModelSizeStr,
     create_model,
 )
@@ -30,7 +31,7 @@ from src.tokenizer import VOCAB, tokenizer
 
 
 def greedy_generate_with_probs(
-    model: ArithmeticModel,
+    model: Model,
     input_ids: torch.Tensor,
     max_new_tokens: int = 20,
     end_token_id: int = 12,
@@ -86,7 +87,7 @@ def greedy_generate_with_probs(
 
 
 def greedy_generate(
-    model: ArithmeticModel,
+    model: Model,
     input_ids: torch.Tensor,
     max_new_tokens: int = 20,
     end_token_id: int = 12,
@@ -162,17 +163,22 @@ def setup_logging() -> None:
     logger.addHandler(console_handler)
 
 
-def load_model(checkpoint_path: Path, model_size: ModelSizeStr) -> ArithmeticModel:
+def load_model(
+    checkpoint_path: Path,
+    model_size: ModelSizeStr,
+    architecture: ArchitectureStr = "standard",
+) -> Model:
     """Load model from checkpoint.
 
     Args:
         checkpoint_path: Path to model checkpoint
         model_size: Model size ("small", "medium", or "large")
+        architecture: Model architecture ("standard" or "universal")
 
     Returns:
         Loaded model
     """
-    model = create_model(model_size)
+    model = create_model(model_size, architecture)
 
     # Load checkpoint - handle different formats
     if checkpoint_path.suffix == ".safetensors":
@@ -294,7 +300,7 @@ def parse_thinking_tags(text: str) -> List[ThinkingNode]:
 
 
 def get_top_k_predictions(
-    model: ArithmeticModel,
+    model: Model,
     input_ids: torch.Tensor,
     k: int = 5,
 ) -> List[Tuple[str, float, int]]:
@@ -370,7 +376,7 @@ def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
 
 
 def interactive_session_with_probabilities(
-    model: ArithmeticModel,
+    model: Model,
     device: torch.device,
     max_new_tokens: int = 512,
 ) -> None:
@@ -485,7 +491,7 @@ def interactive_session_with_probabilities(
 
 
 def interactive_session(
-    model: ArithmeticModel,
+    model: Model,
     device: torch.device,
     max_new_tokens: int = 512,
 ) -> None:
@@ -631,6 +637,13 @@ def main() -> None:
         choices=["xsmall", "small", "medium", "large"],
         help="Model size configuration",
     )
+    parser.add_argument(
+        "--architecture",
+        type=str,
+        default="standard",
+        choices=["standard", "universal"],
+        help="Model architecture: standard transformer or universal transformer",
+    )
 
     # Generation arguments
     parser.add_argument(
@@ -678,9 +691,14 @@ def main() -> None:
     # Initialize tokenizer
 
     # Load model
-    logging.info(f"Loading {args.model_size} model from {args.checkpoint}")
+    arch_desc = (
+        "Universal Transformer"
+        if args.architecture == "universal"
+        else "standard transformer"
+    )
+    logging.info(f"Loading {args.model_size} {arch_desc} from {args.checkpoint}")
     try:
-        model = load_model(args.checkpoint, args.model_size)
+        model = load_model(args.checkpoint, args.model_size, args.architecture)
         model.to(device)
         logging.info(
             f"Model loaded successfully ({model.count_parameters():,} parameters)"
