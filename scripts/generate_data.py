@@ -121,7 +121,7 @@ def main():
     parser.add_argument(
         "--zero-pad",
         action="store_true",
-        help="Zero-pad all numbers to fixed width. Operands padded to max-digits, results to max possible width. In reversed mode, zeros appear on right.",
+        help="Zero-pad all numbers in each example to the same width (matching longest number). In reversed mode, zeros appear on right.",
     )
 
     args = parser.parse_args()

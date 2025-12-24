@@ -19,20 +19,6 @@ def reverse_operand(operand: int) -> str:
     return str_operand[::-1]
 
 
-def calculate_max_result_digits(max_digits: int, max_operands: int) -> int:
-    """Calculate the maximum number of digits the result can have.
-
-    Args:
-        max_digits: Maximum digits per operand
-        max_operands: Maximum number of operands
-
-    Returns:
-        Maximum number of digits in any possible result
-    """
-    max_sum = max_operands * (10**max_digits - 1)
-    return len(str(max_sum))
-
-
 def format_number(n: int, width: int, reversed_format: bool = False) -> str:
     """Format a number with optional zero-padding and reversal.
 
@@ -109,9 +95,10 @@ def generate_addition_examples(
         fixed_length_cot: Whether to pad CoT to fixed length with <noop> tokens.
         include_chain_of_thought: Whether to include chain-of-thought reasoning.
         reversed_format: Whether to reverse digit order in operands and result (no CoT).
-        zero_pad: Whether to zero-pad all numbers to fixed width. Operands are padded
-            to max_digits, results are padded to the maximum possible result width.
-            In reversed_format, zeros appear on the right; otherwise on the left.
+        zero_pad: Whether to zero-pad all numbers in each example to the same width,
+            matching the longest number in that example. This ensures operands and
+            result have identical lengths. In reversed_format, zeros appear on the
+            right; otherwise on the left.
 
     Returns:
         List of arithmetic expressions in format "a+b+c=<think>...</think>d<end>" with recursive reasoning,
@@ -119,12 +106,6 @@ def generate_addition_examples(
     """
     assert max_digits >= 1
     assert max_operands >= 2
-
-    # Calculate padding widths if zero_pad is enabled
-    operand_width = max_digits if zero_pad else 0
-    result_width = (
-        calculate_max_result_digits(max_digits, max_operands) if zero_pad else 0
-    )
 
     cot_length = (
         len(
@@ -161,15 +142,22 @@ def generate_addition_examples(
             operands.append(operand)
         result = sum(operands)
 
+        # Calculate padding width: all numbers padded to length of longest in this example
+        if zero_pad:
+            max_len = max(len(str(op)) for op in operands)
+            max_len = max(max_len, len(str(result)))
+            number_width = max_len
+        else:
+            number_width = 0
+
         # Generate example based on format
         if reversed_format:
             # Reversed format: no CoT, digits reversed in operands and result
             # With zero_pad, zeros appear on the right (after reversal)
             formatted_operands = [
-                format_number(op, operand_width, reversed_format=True)
-                for op in operands
+                format_number(op, number_width, reversed_format=True) for op in operands
             ]
-            formatted_result = format_number(result, result_width, reversed_format=True)
+            formatted_result = format_number(result, number_width, reversed_format=True)
             example = f"<begin>{'+'.join(formatted_operands)}={formatted_result}<end>"
         else:
             # Standard format with optional CoT
@@ -193,11 +181,11 @@ def generate_addition_examples(
 
             # Format operands and result with optional zero-padding
             formatted_operands = [
-                format_number(op, operand_width, reversed_format=False)
+                format_number(op, number_width, reversed_format=False)
                 for op in operands
             ]
             formatted_result = format_number(
-                result, result_width, reversed_format=False
+                result, number_width, reversed_format=False
             )
             example = f"<begin>{'+'.join(formatted_operands)}={reasoning}{formatted_result}<end>"
         examples.append(example)
@@ -226,7 +214,7 @@ def generate_addition_examples_parallel(
         fixed_length_cot: Whether to use fixed-length chain-of-thought
         include_chain_of_thought: Whether to include chain-of-thought reasoning
         reversed_format: Whether to reverse digit order (no CoT)
-        zero_pad: Whether to zero-pad all numbers to fixed width
+        zero_pad: Whether to zero-pad all numbers in each example to the same width
         num_workers: Number of worker processes (default: CPU count)
 
     Returns:

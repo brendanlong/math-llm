@@ -49,36 +49,36 @@
 # ---
 # name: test_zero_pad_normal_format_snapshots
   list([
-    '<begin>04+03=007<end>',
-    '<begin>08+09=017<end>',
-    '<begin>00+03=003<end>',
+    '<begin>4+3=7<end>',
+    '<begin>08+09=17<end>',
+    '<begin>0+3=3<end>',
   ])
 # ---
 # name: test_zero_pad_normal_format_snapshots.1
   list([
-    '<begin>004+003=0007<end>',
-    '<begin>204+858=1062<end>',
-    '<begin>532+000=0532<end>',
+    '<begin>4+3=7<end>',
+    '<begin>0204+0858=1062<end>',
+    '<begin>532+000=532<end>',
   ])
 # ---
 # name: test_zero_pad_reversed_format_snapshots
   list([
-    '<begin>40+30=700<end>',
-    '<begin>80+90=710<end>',
-    '<begin>00+30=300<end>',
+    '<begin>4+3=7<end>',
+    '<begin>80+90=71<end>',
+    '<begin>0+3=3<end>',
   ])
 # ---
 # name: test_zero_pad_reversed_format_snapshots.1
   list([
-    '<begin>400+300=7000<end>',
-    '<begin>402+858=2601<end>',
-    '<begin>235+000=2350<end>',
+    '<begin>4+3=7<end>',
+    '<begin>4020+8580=2601<end>',
+    '<begin>235+000=235<end>',
   ])
 # ---
 # name: test_zero_pad_with_cot_snapshots
   list([
-    '<begin>04+03=<think>4+3=7</think>007<end>',
-    '<begin>08+09=<think>8+9=71</think>017<end>',
-    '<begin>00+03=<think>0+3=3</think>003<end>',
+    '<begin>4+3=<think>4+3=7</think>7<end>',
+    '<begin>08+09=<think>8+9=71</think>17<end>',
+    '<begin>0+3=<think>0+3=3</think>3<end>',
   ])
 # ---
