@@ -5,10 +5,15 @@ This script trains a small transformer model on arithmetic expressions using
 HuggingFace Transformers with W&B logging and automatic checkpointing.
 """
 
+import os
+
+# Disable tokenizers parallelism to avoid fork warning with DataLoader workers.
+# Our simple 17-token vocabulary doesn't benefit from parallel tokenization.
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import argparse
 import json
 import logging
-import os
 import random
 import sys
 from pathlib import Path
@@ -17,11 +22,12 @@ from typing import Sized, cast
 import colorlog
 import numpy as np
 import torch
-import wandb
 from torch.profiler import ProfilerActivity, profile, schedule
 from transformers.trainer import Trainer
 from transformers.trainer_utils import set_seed
 from transformers.training_args import TrainingArguments
+
+import wandb
 
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
