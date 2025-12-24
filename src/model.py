@@ -11,73 +11,20 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from .tokenizer import VOCAB, VOCAB_SIZE
+from .tokenizer import VOCAB_SIZE
 
 MAX_SEQUENCE_LENGTH = 1024
-
-
-def create_reasoning_mask(input_ids: torch.Tensor) -> torch.Tensor:
-    """Create mask for content between <think> and </think> tags (vectorized).
-
-    Assumes only one <think>...</think> pair per sequence for performance.
-
-    Args:
-        input_ids: Token IDs of shape (batch_size, seq_len)
-
-    Returns:
-        Boolean mask of shape (batch_size, seq_len) where True indicates
-        positions that should be masked (content between think tags,
-        excluding the tags themselves)
-    """
-    _, seq_len = input_ids.shape
-    think_start_id = VOCAB["<think>"]
-    think_end_id = VOCAB["</think>"]
-
-    # Find positions of <think> and </think> tokens
-    think_start_mask = input_ids == think_start_id
-    think_end_mask = input_ids == think_end_id
-
-    # Find first <think> position in each sequence (-1 if not found)
-    start_positions = think_start_mask.float().argmax(dim=1)  # (batch_size,)
-    has_start = think_start_mask.any(dim=1)  # (batch_size,)
-    start_positions = torch.where(has_start, start_positions, -1)
-
-    # Find first </think> position in each sequence (-1 if not found)
-    end_positions = think_end_mask.float().argmax(dim=1)  # (batch_size,)
-    has_end = think_end_mask.any(dim=1)  # (batch_size,)
-    end_positions = torch.where(has_end, end_positions, -1)
-
-    # Create position indices
-    positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(
-        0
-    )  # (1, seq_len)
-
-    # Create mask: True for positions between start+1 and end (exclusive)
-    # Mask is True where: start_pos < position < end_pos AND both start/end exist
-    valid_pairs = has_start & has_end & (start_positions < end_positions)
-
-    # Expand dimensions for broadcasting
-    start_expanded = start_positions.unsqueeze(1)  # (batch_size, 1)
-    end_expanded = end_positions.unsqueeze(1)  # (batch_size, 1)
-    valid_expanded = valid_pairs.unsqueeze(1)  # (batch_size, 1)
-
-    # Create the mask: position > start AND position < end AND valid_pair
-    mask = (positions > start_expanded) & (positions < end_expanded) & valid_expanded
-
-    return mask
 
 
 def compute_loss(
     logits: torch.Tensor,
     labels: torch.Tensor,
-    mask_reasoning: bool = False,
 ) -> torch.Tensor:
-    """Compute completion-only loss (only on tokens after = sign).
+    """Compute next-token prediction loss.
 
     Args:
         logits: Model predictions of shape (batch_size, seq_len, vocab_size)
         labels: Target labels of shape (batch_size, seq_len)
-        mask_reasoning: If True, mask reasoning content between <think> and </think>
 
     Returns:
         Computed loss tensor
@@ -90,31 +37,6 @@ def compute_loss(
     min_len = min(shift_logits.shape[1], shift_labels.shape[1])
     shift_logits = shift_logits[:, :min_len, :]
     shift_labels = shift_labels[:, :min_len]
-
-    # Apply reasoning masking if requested
-    if mask_reasoning:
-        # Create reasoning mask from labels (not input_ids) to mask based on ground truth
-        # We need the original labels before shifting to find <think>...</think> positions
-        reasoning_mask = create_reasoning_mask(labels)
-
-        # Shift the reasoning mask to align with shifted labels
-        reasoning_mask_shifted = reasoning_mask[:, 1 : min_len + 1]
-
-        # Never mask special tokens - always train on them to prevent malformed reasoning
-        # Check if MODEL PREDICTIONS contain special tokens, not ground truth
-        special_tokens = torch.tensor(
-            [VOCAB["<end>"], VOCAB["<think>"], VOCAB["</think>"]], device=labels.device
-        )
-        # Get predicted tokens from logits
-        predicted_tokens = torch.argmax(shift_logits, dim=-1)
-        # Check if any position contains a special token (broadcasting)
-        is_special_token = (predicted_tokens.unsqueeze(-1) == special_tokens).any(
-            dim=-1
-        )
-        reasoning_mask_shifted = reasoning_mask_shifted & ~is_special_token
-
-        # Set masked positions to ignore index (-100)
-        shift_labels = shift_labels.masked_fill(reasoning_mask_shifted, -100)
 
     # Flatten tensors
     shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
@@ -328,306 +250,11 @@ class ArithmeticModel(nn.Module):
             torch.nn.init.zeros_(module.bias)
             torch.nn.init.ones_(module.weight)
 
-    def _gumbel_softmax(
-        self, logits: torch.Tensor, temperature: float = 1.0, hard: bool = False
-    ) -> torch.Tensor:
-        """Apply Gumbel-Softmax to logits.
-
-        Args:
-            logits: Logits tensor of shape (..., vocab_size)
-            temperature: Temperature for Gumbel-Softmax
-            hard: If True, returns one-hot vectors (straight-through estimator)
-
-        Returns:
-            Soft (or hard) token probabilities
-        """
-        return F.gumbel_softmax(logits, tau=temperature, hard=hard, dim=-1)
-
-    def _forward_with_self_reasoning(
-        self,
-        input_ids: torch.Tensor,
-        labels: Optional[torch.Tensor],
-        mask_reasoning: bool = True,
-    ) -> dict[str, torch.Tensor]:
-        """Forward pass with self-generated reasoning (optimized for fixed-length CoT).
-
-        This method groups sequences by their <think> position and generates reasoning
-        tokens in parallel within each group, providing significant speedup over
-        sequential generation.
-
-        Args:
-            input_ids: Input token IDs including full sequence
-            labels: Full target sequence including reasoning and answer
-            mask_reasoning: Whether to mask reasoning in loss (default True)
-
-        Returns:
-            Dictionary with loss and generated logits
-        """
-        if labels is None:
-            raise ValueError("Labels required for self-reasoning mode")
-
-        batch_size, _ = input_ids.shape
-
-        # Token IDs
-        think_start_id = VOCAB["<think>"]
-        think_end_id = VOCAB["</think>"]
-
-        # Group sequences by their <think> position for parallel generation
-        think_groups: dict[int, list[int]] = {}  # think_pos -> list of batch indices
-        reasoning_info: dict[
-            int, tuple[int, int]
-        ] = {}  # batch_idx -> (think_start_pos, num_reasoning_tokens)
-
-        # Analyze all sequences to find groupings
-        for batch_idx in range(batch_size):
-            seq_labels = labels[batch_idx]
-            think_start_positions = (seq_labels == think_start_id).nonzero(
-                as_tuple=False
-            )
-            think_end_positions = (seq_labels == think_end_id).nonzero(as_tuple=False)
-
-            # Skip if no reasoning section found
-            if len(think_start_positions) == 0 or len(think_end_positions) == 0:
-                continue
-
-            think_start_pos = think_start_positions[0].item()
-            think_end_pos = think_end_positions[0].item()
-
-            # Skip if invalid reasoning section
-            if think_start_pos >= think_end_pos:
-                continue
-
-            # Calculate exact number of reasoning tokens
-            num_reasoning_tokens = int(think_end_pos - think_start_pos - 1)
-
-            if num_reasoning_tokens <= 0:
-                continue
-
-            # Store reasoning info for this sequence
-            reasoning_info[batch_idx] = (
-                int(think_start_pos),
-                int(num_reasoning_tokens),
-            )
-
-            # Group by think position (sequences with same think position can be generated in parallel)
-            think_start_pos_key = int(think_start_pos)
-            if think_start_pos_key not in think_groups:
-                think_groups[think_start_pos_key] = []
-            think_groups[think_start_pos_key].append(batch_idx)
-
-        # Clone input for modifications
-        modified_inputs = input_ids.clone()
-
-        # Generate reasoning for each group in parallel
-        with torch.no_grad():
-            for think_pos, batch_indices in think_groups.items():
-                if not batch_indices:
-                    continue
-
-                # Get the first sequence's reasoning length (should be same for fixed-length CoT)
-                first_idx = batch_indices[0]
-                _, num_reasoning_tokens = reasoning_info[first_idx]
-
-                # Validate that all sequences in this group have the same reasoning length
-                for batch_idx in batch_indices[1:]:
-                    _, other_num_tokens = reasoning_info[batch_idx]
-                    if other_num_tokens != num_reasoning_tokens:
-                        raise ValueError(
-                            f"Inconsistent reasoning length in group at position {think_pos}: "
-                            f"sequence {first_idx} has {num_reasoning_tokens} tokens, "
-                            f"but sequence {batch_idx} has {other_num_tokens} tokens. "
-                            f"Self-reasoning mode requires fixed-length CoT."
-                        )
-
-                # Extract prompts for this group (up to and including <think>)
-                prompt_len = think_pos + 1
-                group_prompts = torch.stack(
-                    [input_ids[i, :prompt_len] for i in batch_indices]
-                )
-
-                # Generate reasoning tokens in parallel for this group
-                current_seqs = group_prompts.clone()  # Shape: (group_size, prompt_len)
-
-                for _ in range(num_reasoning_tokens):
-                    # Get model predictions for all sequences in this group
-                    outputs = self.forward(current_seqs)
-                    if isinstance(outputs, dict):
-                        logits = outputs["logits"]
-                    else:
-                        logits = outputs
-
-                    # Get next token predictions
-                    next_token_logits = logits[
-                        :, -1, :
-                    ]  # Shape: (group_size, vocab_size)
-                    next_tokens = torch.argmax(
-                        next_token_logits, dim=-1
-                    )  # Shape: (group_size,)
-
-                    # Append to all sequences in group
-                    current_seqs = torch.cat(
-                        [current_seqs, next_tokens.unsqueeze(1)], dim=1
-                    )
-
-                # Extract generated reasoning tokens for this group
-                generated_reasoning = current_seqs[
-                    :, prompt_len:
-                ]  # Shape: (group_size, num_reasoning_tokens)
-
-                # Update the modified inputs for all sequences in this group
-                for i, batch_idx in enumerate(batch_indices):
-                    modified_inputs[
-                        batch_idx, think_pos + 1 : think_pos + 1 + num_reasoning_tokens
-                    ] = generated_reasoning[i]
-
-        # Forward pass with modified inputs (containing generated reasoning)
-        outputs = self.forward(
-            modified_inputs,
-            attention_mask=None,
-            labels=labels,
-            mask_reasoning=mask_reasoning,
-            use_self_reasoning=False,  # Prevent recursion
-        )
-
-        # Ensure we return a dict for consistency
-        if isinstance(outputs, dict):
-            return outputs
-        else:
-            return {"logits": outputs}
-
-    def _forward_with_gumbel(
-        self,
-        input_ids: torch.Tensor,
-        labels: Optional[torch.Tensor],
-        temperature: float = 1.0,
-        mask_reasoning: bool = False,
-    ) -> dict[str, torch.Tensor] | torch.Tensor:
-        """Forward pass with Gumbel-Softmax generation.
-
-        Instead of teacher forcing, generate the full sequence using Gumbel-Softmax
-        sampling to maintain differentiability.
-
-        Args:
-            input_ids: Input token IDs
-            labels: Full target sequence including the answer
-            temperature: Gumbel-Softmax temperature
-            mask_reasoning: Whether to mask reasoning content between <think> and </think>
-
-        Returns:
-            Dictionary with loss and generated logits
-        """
-        batch_size, seq_len = input_ids.shape
-
-        # Use input_ids as-is and compute logits for the full sequence
-        # Token embeddings
-        x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        x = x * math.sqrt(self.d_model)  # Scale embeddings
-
-        # For the generation part, we'll replace some tokens with Gumbel-sampled ones
-        # Find the equals sign to determine where generation should start
-        equals_token_id = VOCAB["="]
-
-        # Find positions of equals signs
-        equals_mask = input_ids == equals_token_id
-
-        # Check that each sequence has at least one equals sign
-        equals_per_sequence = equals_mask.sum(dim=1)
-        assert (equals_per_sequence >= 1).all(), (
-            "Each sequence must have at least one equals sign"
-        )
-
-        # Find the position of the FIRST equals sign in each sequence
-        # argmax on a boolean tensor gives the first True position
-        generation_starts = (
-            equals_mask.float().argmax(dim=1) + 1
-        )  # +1 to start after equals
-
-        # Process sequences with differentiable generation after equals
-        all_logits = []
-
-        # Initialize embeddings tensor (more efficient than list operations)
-        current_embeddings = x.clone()  # (batch_size, seq_len, d_model)
-
-        for pos in range(seq_len):
-            # Get embeddings up to current position (avoid tensor stacking)
-            pos_embeddings = current_embeddings[:, : pos + 1, :]
-
-            # Build ALiBi bias for current position
-            alibi_bias = build_alibi_bias(
-                self.n_heads, pos + 1, input_ids.device, dtype=pos_embeddings.dtype
-            )
-
-            # Apply transformer layers
-            hidden = pos_embeddings
-            for layer in self.layers:
-                hidden = layer(hidden, alibi_bias=alibi_bias)
-
-            # Final layer norm and projection
-            hidden = self.ln_f(hidden)
-            logits = self.lm_head(hidden)  # (batch_size, pos+1, vocab_size)
-
-            # Get logits for current position
-            current_logits = logits[:, -1, :]  # (batch_size, vocab_size)
-            all_logits.append(current_logits)
-
-            # For positions after equals sign, use Gumbel-Softmax
-            should_generate = pos >= generation_starts  # Boolean mask (batch_size,)
-
-            if should_generate.any() and pos + 1 < seq_len:
-                # Apply Gumbel-Softmax to get soft token probabilities
-                soft_probs = self._gumbel_softmax(
-                    current_logits,
-                    temperature=temperature,
-                    hard=False,
-                )  # (batch_size, vocab_size)
-
-                # Compute soft embeddings for next position
-                soft_embeddings = (
-                    soft_probs @ self.token_embedding.weight
-                )  # (batch_size, d_model)
-
-                # Update embeddings for next position (avoid in-place to preserve gradients)
-                next_pos_embeddings = torch.where(
-                    should_generate.unsqueeze(1),
-                    soft_embeddings,
-                    current_embeddings[:, pos + 1, :],
-                )
-                # Create new tensor with updated embeddings
-                current_embeddings = torch.cat(
-                    [
-                        current_embeddings[:, : pos + 1, :],
-                        next_pos_embeddings.unsqueeze(1),
-                        current_embeddings[:, pos + 2 :, :]
-                        if pos + 2 < seq_len
-                        else torch.empty(
-                            batch_size,
-                            0,
-                            self.d_model,
-                            device=current_embeddings.device,
-                        ),
-                    ],
-                    dim=1,
-                )
-
-        # Stack all logits
-        logits = torch.stack(all_logits, dim=1)  # (batch_size, seq_len, vocab_size)
-
-        # Compute loss using standard method
-        if labels is not None:
-            loss = compute_loss(logits, labels, mask_reasoning)
-            return {"loss": loss, "logits": logits}
-
-        return {"logits": logits}
-
     def forward(
         self,
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
-        use_gumbel: bool = False,
-        gumbel_temperature: float = 1.0,
-        mask_reasoning: bool = False,
-        use_self_reasoning: bool = False,
         **_kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
@@ -636,28 +263,11 @@ class ArithmeticModel(nn.Module):
             input_ids: Input token IDs of shape (batch_size, seq_len)
             attention_mask: Optional attention mask (unused)
             labels: Optional labels for computing loss
-            use_gumbel: Whether to use Gumbel-Softmax for differentiable generation
-            gumbel_temperature: Temperature for Gumbel-Softmax (lower = more discrete)
-            mask_reasoning: Whether to mask reasoning content between <think> and </think>
-            use_self_reasoning: Whether to use self-generated reasoning mode
 
         Returns:
             If labels provided: dict with 'loss' and 'logits'
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
-        if use_self_reasoning:
-            # Self-reasoning mode requirements
-            assert labels is not None, "Labels required for self-reasoning mode"
-            assert self.training, "Self-reasoning mode only supported during training"
-            assert not use_gumbel, "Cannot use both self-reasoning and Gumbel-Softmax"
-            return self._forward_with_self_reasoning(input_ids, labels, mask_reasoning)
-
-        if use_gumbel and labels is not None and self.training:
-            # Generate full sequence using Gumbel-Softmax (only during training)
-            return self._forward_with_gumbel(
-                input_ids, labels, gumbel_temperature, mask_reasoning
-            )
-
         _, seq_len = input_ids.shape
 
         # Token embeddings
@@ -679,7 +289,7 @@ class ArithmeticModel(nn.Module):
 
         # Compute loss if labels are provided
         if labels is not None:
-            loss = compute_loss(logits, labels, mask_reasoning)
+            loss = compute_loss(logits, labels)
             return {"loss": loss, "logits": logits}
 
         return logits

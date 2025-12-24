@@ -17,11 +17,11 @@ from typing import Sized, cast
 import colorlog
 import numpy as np
 import torch
+import wandb
 from torch.profiler import ProfilerActivity, profile, schedule
+from transformers.trainer import Trainer
 from transformers.trainer_utils import set_seed
 from transformers.training_args import TrainingArguments
-
-import wandb
 
 # Add parent directory to path to import src modules
 sys.path.append(str(Path(__file__).parent.parent))
@@ -30,7 +30,7 @@ from src.data import ArithmeticDataset, load_splits
 from src.model import create_model
 from src.tokenizer import VOCAB_SIZE
 from src.training import (
-    CustomTrainer,
+    compute_metrics,
     data_collator,
     setup_training_optimizations,
 )
@@ -206,35 +206,8 @@ def main() -> None:
         action="store_true",
         help="Run one epoch with torch.profiler and save results",
     )
-    parser.add_argument(
-        "--use-gumbel",
-        action="store_true",
-        help="Use Gumbel-Softmax for differentiable sequence generation instead of teacher forcing",
-    )
-    parser.add_argument(
-        "--gumbel-temperature",
-        type=float,
-        default=1.0,
-        help="Temperature for Gumbel-Softmax (lower = more discrete)",
-    )
-    parser.add_argument(
-        "--mask-reasoning",
-        action="store_true",
-        help="Mask reasoning content between <think> and </think> tags during training",
-    )
-    parser.add_argument(
-        "--use-self-reasoning",
-        action="store_true",
-        help="Generate reasoning tokens without backprop, then predict with them. "
-        "Groups sequences by <think> position for parallel generation. "
-        "Works best with fixed-length CoT data (mutually exclusive with --use-gumbel)",
-    )
 
     args = parser.parse_args()
-
-    # Validate mutually exclusive options
-    if args.use_gumbel and args.use_self_reasoning:
-        parser.error("--use-gumbel and --use-self-reasoning are mutually exclusive")
 
     # Setup
     setup_logging()
@@ -271,13 +244,6 @@ def main() -> None:
     # Initialize W&B
     if not args.no_wandb:
         wandb_name = f"arithmetic-{args.model_size}-{args.batch_size}batch-{args.learning_rate}lr"
-        if args.use_gumbel:
-            wandb_name += f"-gumbel{args.gumbel_temperature}"
-        if args.use_self_reasoning:
-            wandb_name += "-selfreason"
-        if args.mask_reasoning:
-            wandb_name += "-masked"
-
         wandb.init(
             project="math-llm",
             config={
@@ -287,10 +253,6 @@ def main() -> None:
                 "num_epochs": args.num_epochs,
                 "max_length": args.max_length,
                 "seed": args.seed,
-                "use_gumbel": args.use_gumbel,
-                "gumbel_temperature": args.gumbel_temperature,
-                "mask_reasoning": args.mask_reasoning,
-                "use_self_reasoning": args.use_self_reasoning,
             },
             name=wandb_name,
         )
@@ -311,37 +273,6 @@ def main() -> None:
 
     # Enable TensorFloat32 for better performance on modern GPUs
     setup_training_optimizations()
-
-    # Log Gumbel-Softmax settings
-    if args.use_gumbel:
-        logger.info(
-            f"Using Gumbel-Softmax generation with temperature {args.gumbel_temperature}"
-        )
-        logger.info(
-            "Disabling torch.compile for Gumbel mode due to autoregressive generation"
-        )
-
-    # Log reasoning masking settings
-    if args.mask_reasoning:
-        logger.info("Masking reasoning content between <think> and </think> tags")
-
-    # Log self-reasoning settings
-    if args.use_self_reasoning:
-        logger.info("Using self-reasoning generation mode")
-        logger.info("Model will generate reasoning tokens without backprop")
-        logger.info("Groups sequences by <think> position for parallel generation")
-        logger.info(
-            "Disabling torch.compile for self-reasoning mode due to .item() calls"
-        )
-        if not args.mask_reasoning:
-            logger.warning(
-                "Self-reasoning mode typically works best with --mask-reasoning"
-            )
-        logger.warning(
-            "PERFORMANCE TIP: Self-reasoning mode works best with fixed-length CoT data "
-            "(generated with --fixed-length-cot). This ensures better parallelization "
-            "by grouping sequences with the same reasoning structure."
-        )
 
     # Training arguments
     training_args = TrainingArguments(
@@ -373,22 +304,17 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model="eval_token_accuracy",
         greater_is_better=True,
-        torch_compile=not (
-            args.use_gumbel or args.use_self_reasoning
-        ),  # Disable compile for special modes due to .item() calls
+        torch_compile=True,
     )
 
     # Create trainer
-    trainer = CustomTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_loader.dataset,
         eval_dataset=val_loader.dataset,
         data_collator=data_collator,
-        use_gumbel=args.use_gumbel,
-        gumbel_temperature=args.gumbel_temperature,
-        mask_reasoning=args.mask_reasoning,
-        use_self_reasoning=args.use_self_reasoning,
+        compute_metrics=compute_metrics,
     )
 
     # Save training configuration
@@ -397,10 +323,6 @@ def main() -> None:
         "model_parameters": model.count_parameters(),
         "vocab_size": VOCAB_SIZE,
         "max_length": args.max_length,
-        "use_gumbel": args.use_gumbel,
-        "gumbel_temperature": args.gumbel_temperature,
-        "mask_reasoning": args.mask_reasoning,
-        "use_self_reasoning": args.use_self_reasoning,
         "training_args": training_args.to_dict(),
     }
 

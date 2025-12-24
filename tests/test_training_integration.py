@@ -15,14 +15,12 @@ Run all integration tests:
 
 Run specific tests:
     pytest -m integration tests/test_training_integration.py::test_standard_training_runs
-    pytest -m integration tests/test_training_integration.py::test_gumbel_softmax_training_runs
     pytest -m integration tests/test_training_integration.py::test_different_model_sizes_train
     pytest -m integration tests/test_training_integration.py::test_model_generation_after_training
     pytest -m slow_integration tests/test_training_integration.py::test_training_achieves_high_accuracy
 
 Test coverage:
 - Standard training mode (teacher forcing)
-- Gumbel-Softmax training mode (differentiable generation)
 - Different model sizes (xsmall, small)
 - Model generation after training
 - Training convergence to high accuracy (slow test)
@@ -128,83 +126,6 @@ def test_training_achieves_high_accuracy():
         # Optional: Check loss is low
         eval_loss = test_results.get("eval_loss", float("inf"))
         assert eval_loss < 0.1, f"Eval loss {eval_loss:.4f} is too high"
-
-
-@pytest.mark.integration
-def test_gumbel_softmax_training_runs():
-    """Test that Gumbel-Softmax training mode runs without crashing."""
-    # Create temporary directory for test data and checkpoints
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        data_dir = temp_path / "data"
-        checkpoint_dir = temp_path / "checkpoints"
-
-        # Create directories
-        data_dir.mkdir()
-        checkpoint_dir.mkdir()
-
-        # Step 1: Generate small dataset
-        print("Generating test data for Gumbel-Softmax...")
-        generate_cmd = [
-            "python",
-            "scripts/generate_data.py",
-            "--max-digits",
-            "1",
-            "--max-operands",
-            "2",
-            "--num-examples",
-            "100",
-            "--seed",
-            "42",
-            "--output-dir",
-            str(data_dir),
-        ]
-
-        result = subprocess.run(generate_cmd, capture_output=True, text=True)
-        assert result.returncode == 0, f"Data generation failed: {result.stderr}"
-
-        # Step 2: Run training with Gumbel-Softmax (very short training)
-        print("Running Gumbel-Softmax training...")
-        train_cmd = [
-            "python",
-            "scripts/train.py",
-            "--model-size",
-            "xsmall",
-            "--num-epochs",
-            "1",
-            "--batch-size",
-            "8",
-            "--max-length",
-            "32",
-            "--learning-rate",
-            "0.01",
-            "--warmup-steps",
-            "10",
-            "--data-dir",
-            str(data_dir),
-            "--output-dir",
-            str(checkpoint_dir),
-            "--seed",
-            "42",
-            "--no-wandb",
-            "--logging-steps",
-            "5",
-            "--eval-steps",
-            "50",
-            "--save-steps",
-            "100",
-            "--use-gumbel",
-            "--gumbel-temperature",
-            "0.5",
-        ]
-
-        result = subprocess.run(train_cmd, capture_output=True, text=True)
-        assert result.returncode == 0, (
-            f"Gumbel-Softmax training failed: {result.stderr}"
-        )
-
-        # Just verify training completed without crash
-        print("✅ Gumbel-Softmax training completed successfully")
 
 
 @pytest.mark.integration
@@ -456,7 +377,6 @@ def test_model_generation_after_training():
 if __name__ == "__main__":
     # Allow running directly with python
     test_standard_training_runs()
-    test_gumbel_softmax_training_runs()
     test_model_generation_after_training()
     test_training_achieves_high_accuracy()
     print("✅ All tests passed!")

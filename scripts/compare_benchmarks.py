@@ -12,7 +12,7 @@ from typing import Optional
 class ChangeEntry:
     """Tracks changes between two benchmark runs."""
 
-    config: tuple[str, str, str, bool, bool]
+    config: tuple[str, str, bool]
     before: "BenchmarkRow"
     after: "BenchmarkRow"
     samples_change: float
@@ -32,8 +32,6 @@ class BenchmarkRow:
     data_config: str
     max_digits: int
     max_operands: int
-    training_mode: str
-    use_gumbel: bool
     fp16: bool
     optimal_batch_size: int
     optimal_iterations_per_second: float
@@ -44,13 +42,11 @@ class BenchmarkRow:
     avg_sequence_length: float
 
     @property
-    def key(self) -> tuple[str, str, str, bool, bool]:
+    def key(self) -> tuple[str, str, bool]:
         """Return a unique key for this configuration."""
         return (
             self.model_size,
             self.data_config,
-            self.training_mode,
-            self.use_gumbel,
             self.fp16,
         )
 
@@ -63,8 +59,6 @@ class BenchmarkRow:
             data_config=row["data_config"],
             max_digits=int(row["max_digits"]),
             max_operands=int(row["max_operands"]),
-            training_mode=row["training_mode"],
-            use_gumbel=row["use_gumbel"] == "True",
             fp16=row["fp16"] == "True",
             optimal_batch_size=int(row["optimal_batch_size"]),
             optimal_iterations_per_second=float(row["optimal_iterations_per_second"]),
@@ -78,7 +72,7 @@ class BenchmarkRow:
 
 def load_benchmarks(
     file_path: Path,
-) -> dict[tuple[str, str, str, bool, bool], BenchmarkRow]:
+) -> dict[tuple[str, str, bool], BenchmarkRow]:
     """Load benchmark results from a CSV file."""
     results = {}
     with open(file_path, "r") as f:
@@ -103,14 +97,11 @@ def matches_filters(
     row: BenchmarkRow,
     model_filter: Optional[str],
     dataset_filter: Optional[str],
-    mode_filter: Optional[str],
 ) -> bool:
     """Check if a row matches the given filters."""
     if model_filter and row.model_size != model_filter:
         return False
     if dataset_filter and row.data_config != dataset_filter:
-        return False
-    if mode_filter and row.training_mode != mode_filter:
         return False
     return True
 
@@ -132,9 +123,6 @@ def main():
     )
     parser.add_argument(
         "--dataset", help="Filter by dataset (e.g., 1d_2op, 2d_4op, 5d_5op)"
-    )
-    parser.add_argument(
-        "--mode", choices=["normal", "gumbel"], help="Filter by training mode"
     )
     parser.add_argument(
         "--metric",
@@ -169,7 +157,7 @@ def main():
         after = after_results[key]
 
         # Apply filters
-        if not matches_filters(before, args.model, args.dataset, args.mode):
+        if not matches_filters(before, args.model, args.dataset):
             continue
 
         # Calculate performance changes
@@ -232,9 +220,7 @@ def main():
         before = change.before
         after = change.after
 
-        print(
-            f"\n{config[0]} | {config[1]} | {config[2]} | Gumbel: {config[3]} | FP16: {config[4]}"
-        )
+        print(f"\n{config[0]} | {config[1]} | FP16: {config[2]}")
         print("-" * 120)
 
         if args.metric in ["samples_per_second", "all"]:

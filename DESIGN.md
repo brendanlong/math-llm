@@ -45,33 +45,6 @@ A minimal transformer model to learn basic arithmetic, starting with single-digi
 - **Checkpointing**: Save every 1000 steps for quick restart
 - **Monitoring**: Weights & Biases for metrics visualization
 
-### Gumbel-Softmax Generation Mode
-
-An alternative training mode that replaces teacher forcing with differentiable sequence generation:
-
-- **Purpose**: Enable the model to generate complete sequences during training while maintaining gradient flow
-- **Mechanism**: Uses Gumbel-Softmax with straight-through estimator to sample tokens differentiably
-- **Benefits**:
-  - Model learns from its own generation patterns rather than always seeing ground truth
-  - Can help with exposure bias issues common in teacher forcing
-  - Allows exploration of different generation strategies during training
-- **Temperature Control**: Lower temperatures (e.g., 0.1-0.5) produce more discrete samples, higher temperatures produce softer distributions
-- **Usage**: Enable with `--use-gumbel` flag and control temperature with `--gumbel-temperature`
-
-### CoT-Agnostic Training Mode
-
-A special training mode that allows the model to think flexibly while maintaining correct final answers:
-
-- **Purpose**: Remove dependence on specific chain-of-thought formatting while preserving reasoning capability
-- **Mechanism**: Before computing loss, removes all tokens between `<think>` and `</think>` from both labels and predictions, except for the opening and closing tags themselves
-- **Benefits**:
-  - Model can develop its own internal reasoning patterns
-  - Reduces overfitting to specific CoT formats
-  - Enables training continuation from CoT-trained models without format constraints
-  - Focuses training signal on final answer correctness
-- **Usage**: Toggle-able mode allowing transition from structured CoT training to flexible reasoning
-- **Implementation**: Custom loss computation that filters out internal CoT content while preserving the think tag boundaries
-
 ### Data Generation
 
 - **Size**: 100k examples for single-digit, scale up as needed

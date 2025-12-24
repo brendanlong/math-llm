@@ -18,6 +18,7 @@ from typing import Any
 import colorlog
 import torch
 from torch.utils.data import DataLoader
+from transformers.trainer import Trainer
 from transformers.training_args import TrainingArguments
 
 # Add parent directory to path to import src modules
@@ -28,7 +29,6 @@ from src.generation import generate_addition_examples
 from src.model import ArithmeticModel, ModelSizeStr, create_model
 from src.tokenizer import tokenizer
 from src.training import (
-    CustomTrainer,
     compute_metrics,
     data_collator,
     setup_training_optimizations,
@@ -45,15 +45,6 @@ class DataConfig:
 
 
 @dataclass
-class TrainingMode:
-    """Configuration for training mode."""
-
-    use_gumbel: bool
-    name: str
-    fp16: bool
-
-
-@dataclass
 class BenchmarkResult:
     """Result from a single benchmark run."""
 
@@ -62,8 +53,6 @@ class BenchmarkResult:
     data_config: str
     max_digits: int
     max_operands: int
-    training_mode: str
-    use_gumbel: bool
     fp16: bool
     optimal_batch_size: int | None
     optimal_iterations_per_second: float
@@ -137,12 +126,10 @@ def benchmark_training_step(
     model: ArithmeticModel,
     dataloader: DataLoader[Any],
     device: torch.device,
-    use_gumbel: bool = False,
-    gumbel_temperature: float = 1.0,
     num_steps: int = 20,  # Reduced for speed
     fp16: bool = False,
 ) -> tuple[float, float]:
-    """Benchmark training throughput using CustomTrainer like train.py.
+    """Benchmark training throughput.
 
     Returns:
         Tuple of (iterations_per_second, samples_per_second)
@@ -170,18 +157,15 @@ def benchmark_training_step(
         report_to="none",
         # Other settings
         seed=42,
-        torch_compile=not use_gumbel,  # Disable compile for Gumbel mode
+        torch_compile=True,
     )
 
-    trainer = CustomTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataloader.dataset,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        use_gumbel=use_gumbel,
-        gumbel_temperature=gumbel_temperature,
-        mask_reasoning=False,
     )
 
     model.train()
@@ -262,15 +246,11 @@ def run_benchmark() -> list[BenchmarkResult]:
     model_sizes: list[ModelSizeStr] = [
         "xsmall",
         "small",
-    ]  # Only run on small models for speed , "medium", "large"]
+    ]  # Only run on small models for speed
     data_configs = [
         DataConfig(max_digits=1, max_operands=2, name="1d_2op"),
         DataConfig(max_digits=2, max_operands=4, name="2d_4op"),
         DataConfig(max_digits=5, max_operands=5, name="5d_5op"),
-    ]
-    training_modes = [
-        TrainingMode(use_gumbel=False, name="normal", fp16=False),
-        TrainingMode(use_gumbel=True, name="gumbel", fp16=False),
     ]
 
     # Batch sizes to try in descending order
@@ -298,15 +278,42 @@ def run_benchmark() -> list[BenchmarkResult]:
             model.to(device)
             param_count = model.count_parameters()
 
-            for training_mode in training_modes:
-                logger.info(f"    Mode: {training_mode.name}")
+            # Find optimal batch size by starting large and working down
+            optimal_batch_size = None
+            optimal_result = None
 
-                # Find optimal batch size by starting large and working down
-                optimal_batch_size = None
-                optimal_result = None
+            # First, always test batch_size=1 for baseline (no memory check)
+            batch_size = 1
+            dataloader = DataLoader(
+                dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=0,
+            )
 
-                # First, always test batch_size=1 for baseline (no memory check)
-                batch_size = 1
+            try:
+                iterations_per_sec, samples_per_sec = benchmark_training_step(
+                    model=model,
+                    dataloader=dataloader,
+                    device=device,
+                    num_steps=num_benchmark_steps,
+                    fp16=False,
+                )
+
+                baseline_result = {
+                    "batch_size": batch_size,
+                    "iterations_per_second": iterations_per_sec,
+                    "samples_per_second": samples_per_sec,
+                }
+                logger.info(
+                    f"    Batch size 1: {iterations_per_sec:.1f} it/s, {samples_per_sec:.1f} samples/s"
+                )
+            except Exception as e:
+                logger.error(f"    Failed at batch size 1: {e}")
+                baseline_result = None
+
+            # Now find the optimal batch size
+            for batch_size in batch_sizes_to_try:
                 dataloader = DataLoader(
                     dataset,
                     batch_size=batch_size,
@@ -319,115 +326,79 @@ def run_benchmark() -> list[BenchmarkResult]:
                         model=model,
                         dataloader=dataloader,
                         device=device,
-                        use_gumbel=training_mode.use_gumbel,
                         num_steps=num_benchmark_steps,
-                        fp16=training_mode.fp16,
+                        fp16=False,
                     )
 
-                    baseline_result = {
+                    logger.info(
+                        f"    Batch size {batch_size}: {iterations_per_sec:.1f} it/s, {samples_per_sec:.1f} samples/s"
+                    )
+
+                    # This is our optimal batch size
+                    optimal_batch_size = batch_size
+                    optimal_result = {
                         "batch_size": batch_size,
                         "iterations_per_second": iterations_per_sec,
                         "samples_per_second": samples_per_sec,
                     }
-                    logger.info(
-                        f"      Batch size 1: {iterations_per_sec:.1f} it/s, {samples_per_sec:.1f} samples/s"
-                    )
+                    break  # Found the largest working batch size
+
                 except Exception as e:
-                    logger.error(f"      Failed at batch size 1: {e}")
-                    baseline_result = None
+                    if "out of memory" in str(e).lower():
+                        logger.info(f"    Batch size {batch_size}: OOM, trying smaller")
+                    else:
+                        logger.error(f"    Batch size {batch_size} failed: {e}")
+                    continue
 
-                # Now find the optimal batch size
-                for batch_size in batch_sizes_to_try:
-                    dataloader = DataLoader(
-                        dataset,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=0,
+            # Record the best result
+            if optimal_result:
+                result = BenchmarkResult(
+                    model_size=model_size,
+                    model_parameters=param_count,
+                    data_config=data_config.name,
+                    max_digits=data_config.max_digits,
+                    max_operands=data_config.max_operands,
+                    fp16=False,
+                    optimal_batch_size=optimal_batch_size,
+                    optimal_iterations_per_second=round(
+                        optimal_result["iterations_per_second"], 2
+                    ),
+                    optimal_samples_per_second=round(
+                        optimal_result["samples_per_second"], 2
+                    ),
+                    baseline_batch_size=1,
+                    baseline_samples_per_second=round(
+                        baseline_result["samples_per_second"], 2
                     )
-
-                    try:
-                        iterations_per_sec, samples_per_sec = benchmark_training_step(
-                            model=model,
-                            dataloader=dataloader,
-                            device=device,
-                            use_gumbel=training_mode.use_gumbel,
-                            num_steps=num_benchmark_steps,
-                            fp16=training_mode.fp16,
-                        )
-
-                        logger.info(
-                            f"      Batch size {batch_size}: {iterations_per_sec:.1f} it/s, {samples_per_sec:.1f} samples/s"
-                        )
-
-                        # This is our optimal batch size
-                        optimal_batch_size = batch_size
-                        optimal_result = {
-                            "batch_size": batch_size,
-                            "iterations_per_second": iterations_per_sec,
-                            "samples_per_second": samples_per_sec,
-                        }
-                        break  # Found the largest working batch size
-
-                    except Exception as e:
-                        if "out of memory" in str(e).lower():
-                            logger.info(
-                                f"      Batch size {batch_size}: OOM, trying smaller"
-                            )
-                        else:
-                            logger.error(f"      Batch size {batch_size} failed: {e}")
-                        continue
-
-                # Record the best result
-                if optimal_result:
-                    result = BenchmarkResult(
-                        model_size=model_size,
-                        model_parameters=param_count,
-                        data_config=data_config.name,
-                        max_digits=data_config.max_digits,
-                        max_operands=data_config.max_operands,
-                        training_mode=training_mode.name,
-                        use_gumbel=training_mode.use_gumbel,
-                        fp16=training_mode.fp16,
-                        optimal_batch_size=optimal_batch_size,
-                        optimal_iterations_per_second=round(
-                            optimal_result["iterations_per_second"], 2
-                        ),
-                        optimal_samples_per_second=round(
-                            optimal_result["samples_per_second"], 2
-                        ),
-                        baseline_batch_size=1,
-                        baseline_samples_per_second=round(
-                            baseline_result["samples_per_second"], 2
-                        )
-                        if baseline_result
-                        else None,
-                        speedup=round(
-                            optimal_result["samples_per_second"]
-                            / baseline_result["samples_per_second"],
-                            2,
-                        )
-                        if baseline_result
-                        else None,
-                        avg_sequence_length=round(
-                            sum(len(tokenizer.encode(ex)) for ex in examples[:50]) / 50,
-                            1,
-                        ),
+                    if baseline_result
+                    else None,
+                    speedup=round(
+                        optimal_result["samples_per_second"]
+                        / baseline_result["samples_per_second"],
+                        2,
                     )
-                    results.append(result)
+                    if baseline_result
+                    else None,
+                    avg_sequence_length=round(
+                        sum(len(tokenizer.encode(ex)) for ex in examples[:50]) / 50,
+                        1,
+                    ),
+                )
+                results.append(result)
 
-                    logger.info(
-                        f"      ✓ Optimal: batch_size={optimal_batch_size}, {optimal_result['samples_per_second']:.1f} samples/s"
+                logger.info(
+                    f"    ✓ Optimal: batch_size={optimal_batch_size}, {optimal_result['samples_per_second']:.1f} samples/s"
+                )
+                if (
+                    baseline_result
+                    and optimal_batch_size is not None
+                    and optimal_batch_size > 1
+                ):
+                    speedup = (
+                        optimal_result["samples_per_second"]
+                        / baseline_result["samples_per_second"]
                     )
-                    if (
-                        baseline_result
-                        and optimal_batch_size is not None
-                        and optimal_batch_size > 1
-                    ):
-                        speedup = (
-                            optimal_result["samples_per_second"]
-                            / baseline_result["samples_per_second"]
-                        )
-                        logger.info(f"      → Speedup vs batch_size=1: {speedup:.2f}x")
+                    logger.info(f"    → Speedup vs batch_size=1: {speedup:.2f}x")
 
     return results
 
@@ -567,7 +538,7 @@ def write_markdown_report(results: list[BenchmarkResult], output_path: Path) -> 
                 f"- **Best Performance**: {best_overall.optimal_samples_per_second:.1f} samples/s\n"
             )
             f.write(
-                f"- **Best Configuration**: {best_overall.model_size} model, {best_overall.data_config} dataset, {best_overall.training_mode} mode\n"
+                f"- **Best Configuration**: {best_overall.model_size} model, {best_overall.data_config} dataset\n"
             )
             f.write(f"- **Optimal Batch Size**: {best_overall.optimal_batch_size}\n")
             if best_overall.speedup:
@@ -594,10 +565,10 @@ def write_markdown_report(results: list[BenchmarkResult], output_path: Path) -> 
 
             # Results table
             f.write(
-                "| Model | Mode | Parameters | Optimal Batch | Samples/s | Baseline (b=1) | Speedup |\n"
+                "| Model | Parameters | Optimal Batch | Samples/s | Baseline (b=1) | Speedup |\n"
             )
             f.write(
-                "|-------|------|------------|---------------|-----------|----------------|----------|\n"
+                "|-------|------------|---------------|-----------|----------------|----------|\n"
             )
 
             model_sizes = ["xsmall", "small", "medium", "large"]
@@ -605,7 +576,7 @@ def write_markdown_report(results: list[BenchmarkResult], output_path: Path) -> 
                 model_results = [
                     r for r in dataset_results if r.model_size == model_size
                 ]
-                for result in sorted(model_results, key=lambda x: x.training_mode):
+                for result in model_results:
                     speedup_str = f"{result.speedup:.2f}x" if result.speedup else "N/A"
                     baseline_str = (
                         f"{result.baseline_samples_per_second:.1f}"
@@ -614,7 +585,7 @@ def write_markdown_report(results: list[BenchmarkResult], output_path: Path) -> 
                     )
 
                     f.write(
-                        f"| {result.model_size} | {result.training_mode} | {result.model_parameters:,} | {result.optimal_batch_size} | {result.optimal_samples_per_second:.1f} | {baseline_str} | {speedup_str} |\n"
+                        f"| {result.model_size} | {result.model_parameters:,} | {result.optimal_batch_size} | {result.optimal_samples_per_second:.1f} | {baseline_str} | {speedup_str} |\n"
                     )
 
             f.write("\n")
@@ -636,26 +607,11 @@ def write_markdown_report(results: list[BenchmarkResult], output_path: Path) -> 
                     f"- Best performance: {best.optimal_samples_per_second:.1f} samples/s\n"
                 )
                 f.write(
-                    f"- Configuration: {best.data_config} dataset, {best.training_mode} mode, batch size {best.optimal_batch_size}\n"
+                    f"- Configuration: {best.data_config} dataset, batch size {best.optimal_batch_size}\n"
                 )
                 if best.speedup:
                     f.write(f"- Speedup vs batch=1: {best.speedup:.2f}x\n")
                 f.write("\n")
-
-        # Training mode comparison
-        f.write("### Training Mode Comparison\n\n")
-        modes = sorted(set(result.training_mode for result in results))
-        for mode in modes:
-            mode_results = [r for r in results if r.training_mode == mode]
-            if mode_results:
-                avg_perf = sum(
-                    r.optimal_samples_per_second for r in mode_results
-                ) / len(mode_results)
-                best_perf = max(r.optimal_samples_per_second for r in mode_results)
-                f.write(f"**{mode.upper()} Mode**:\n")
-                f.write(f"- Average performance: {avg_perf:.1f} samples/s\n")
-                f.write(f"- Best performance: {best_perf:.1f} samples/s\n")
-                f.write(f"- Configurations tested: {len(mode_results)}\n\n")
 
         # Batch size analysis
         f.write("### Batch Size Impact\n\n")
@@ -696,10 +652,10 @@ def print_summary(results: list[BenchmarkResult]) -> None:
         print(f"\n{data_config.upper()} Dataset")
         print("-" * 80)
         print(
-            f"{'Model':<8} {'Mode':<10} {'Optimal':<8} {'Samples/s':<12} {'Baseline':<12} {'Speedup':<8} {'Seq Len':<8}"
+            f"{'Model':<8} {'Optimal':<8} {'Samples/s':<12} {'Baseline':<12} {'Speedup':<8} {'Seq Len':<8}"
         )
         print(
-            f"{'     ':<8} {'    ':<10} {'Batch':<8} {'        ':<12} {'(b=1)':<12} {'       ':<8} {'       ':<8}"
+            f"{'     ':<8} {'Batch':<8} {'        ':<12} {'(b=1)':<12} {'       ':<8} {'       ':<8}"
         )
         print("-" * 80)
 
@@ -711,7 +667,7 @@ def print_summary(results: list[BenchmarkResult]) -> None:
                 if r.model_size == model_size and r.data_config == data_config
             ]
 
-            for result in sorted(model_results, key=lambda x: x.training_mode):
+            for result in model_results:
                 speedup_str = f"{result.speedup:.2f}x" if result.speedup else "N/A"
                 baseline_str = (
                     f"{result.baseline_samples_per_second:.1f}"
@@ -720,7 +676,7 @@ def print_summary(results: list[BenchmarkResult]) -> None:
                 )
 
                 print(
-                    f"{model_size:<8} {result.training_mode:<10} {result.optimal_batch_size:<8} "
+                    f"{model_size:<8} {result.optimal_batch_size:<8} "
                     f"{result.optimal_samples_per_second:<12.1f} {baseline_str:<12} "
                     f"{speedup_str:<8} {result.avg_sequence_length:<8.1f}"
                 )
@@ -738,7 +694,7 @@ def print_summary(results: list[BenchmarkResult]) -> None:
             best = max(model_results, key=lambda x: x.optimal_samples_per_second)
             print(f"\n{model_size.upper()} ({best.model_parameters:,} params):")
             print(
-                f"  Best config: {best.data_config} / {best.training_mode} / batch={best.optimal_batch_size}"
+                f"  Best config: {best.data_config} / batch={best.optimal_batch_size}"
             )
             print(f"  Performance: {best.optimal_samples_per_second:.1f} samples/s")
             if best.speedup:
