@@ -61,7 +61,21 @@ math-llm/
 
 ```bash
 python scripts/generate_data.py --num-examples 100000 --max-digits 2
+
+# Generate reversed-format data (digits reversed, no CoT)
+python scripts/generate_data.py --num-examples 100000 --max-digits 3 --reversed-format
 ```
+
+#### Data Generation Arguments
+
+- `--num-examples`: Number of examples to generate - default: `100000`
+- `--max-digits`: Maximum digits per operand - default: `3`
+- `--max-operands`: Maximum operands per expression - default: `3`
+- `--seed`: Random seed - default: `42`
+- `--output-dir`: Output directory - default: `data`
+- `--no-include-cot`: Disable chain-of-thought reasoning
+- `--fixed-length-cot`: Pad CoT to fixed length with `<noop>` tokens
+- `--reversed-format`: Reverse digit order in operands and result (e.g., `8+21=02` for `8+12=20`). Automatically disables CoT.
 
 ### Training
 
@@ -263,6 +277,7 @@ The interactive script accepts various input formats:
 - **Formats**:
   - Simple: `"3+5=8<end>"`
   - With reasoning: `"658+189=<think>8+9=17 5+8+1=14 6+1+1=8</think>847<end>"`
+  - Reversed: `"8+21=02<end>"` (digits reversed for easier left-to-right processing)
 
 ## Hardware Requirements
 
