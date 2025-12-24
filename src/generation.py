@@ -19,6 +19,45 @@ def reverse_operand(operand: int) -> str:
     return str_operand[::-1]
 
 
+def calculate_max_result_digits(max_digits: int, max_operands: int) -> int:
+    """Calculate the maximum number of digits the result can have.
+
+    Args:
+        max_digits: Maximum digits per operand
+        max_operands: Maximum number of operands
+
+    Returns:
+        Maximum number of digits in any possible result
+    """
+    max_sum = max_operands * (10**max_digits - 1)
+    return len(str(max_sum))
+
+
+def format_number(n: int, width: int, reversed_format: bool = False) -> str:
+    """Format a number with optional zero-padding and reversal.
+
+    Args:
+        n: The number to format
+        width: Target width (0 for no padding)
+        reversed_format: If True, reverse digits and pad on right; else pad on left
+
+    Returns:
+        Formatted string representation
+    """
+    s = str(n)
+    if width == 0:
+        if reversed_format:
+            return s[::-1]
+        return s
+
+    if reversed_format:
+        # Reverse first, then pad on right
+        return s[::-1].ljust(width, "0")
+    else:
+        # Pad on left
+        return s.zfill(width)
+
+
 def generate_chain_of_thought(operands: list[int]) -> str:
     """Generate recursive left-to-right chain-of-thought for multiple operands.
 
@@ -58,6 +97,7 @@ def generate_addition_examples(
     fixed_length_cot: bool = False,
     include_chain_of_thought: bool = True,
     reversed_format: bool = False,
+    zero_pad: bool = False,
 ) -> list[str]:
     """Generate addition examples with chain-of-thought for multi-digit problems.
 
@@ -69,6 +109,9 @@ def generate_addition_examples(
         fixed_length_cot: Whether to pad CoT to fixed length with <noop> tokens.
         include_chain_of_thought: Whether to include chain-of-thought reasoning.
         reversed_format: Whether to reverse digit order in operands and result (no CoT).
+        zero_pad: Whether to zero-pad all numbers to fixed width. Operands are padded
+            to max_digits, results are padded to the maximum possible result width.
+            In reversed_format, zeros appear on the right; otherwise on the left.
 
     Returns:
         List of arithmetic expressions in format "a+b+c=<think>...</think>d<end>" with recursive reasoning,
@@ -76,6 +119,12 @@ def generate_addition_examples(
     """
     assert max_digits >= 1
     assert max_operands >= 2
+
+    # Calculate padding widths if zero_pad is enabled
+    operand_width = max_digits if zero_pad else 0
+    result_width = (
+        calculate_max_result_digits(max_digits, max_operands) if zero_pad else 0
+    )
 
     cot_length = (
         len(
@@ -115,9 +164,13 @@ def generate_addition_examples(
         # Generate example based on format
         if reversed_format:
             # Reversed format: no CoT, digits reversed in operands and result
-            reversed_operands = [reverse_operand(op) for op in operands]
-            reversed_result = reverse_operand(result)
-            example = f"<begin>{'+'.join(reversed_operands)}={reversed_result}<end>"
+            # With zero_pad, zeros appear on the right (after reversal)
+            formatted_operands = [
+                format_number(op, operand_width, reversed_format=True)
+                for op in operands
+            ]
+            formatted_result = format_number(result, result_width, reversed_format=True)
+            example = f"<begin>{'+'.join(formatted_operands)}={formatted_result}<end>"
         else:
             # Standard format with optional CoT
             if include_chain_of_thought:
@@ -138,7 +191,15 @@ def generate_addition_examples(
             else:
                 reasoning = ""
 
-            example = f"<begin>{'+'.join(map(str, operands))}={reasoning}{result}<end>"
+            # Format operands and result with optional zero-padding
+            formatted_operands = [
+                format_number(op, operand_width, reversed_format=False)
+                for op in operands
+            ]
+            formatted_result = format_number(
+                result, result_width, reversed_format=False
+            )
+            example = f"<begin>{'+'.join(formatted_operands)}={reasoning}{formatted_result}<end>"
         examples.append(example)
 
     return examples
@@ -152,6 +213,7 @@ def generate_addition_examples_parallel(
     fixed_length_cot: bool = False,
     include_chain_of_thought: bool = True,
     reversed_format: bool = False,
+    zero_pad: bool = False,
     num_workers: int | None = None,
 ) -> list[str]:
     """Generate addition examples using multiple processes.
@@ -164,6 +226,7 @@ def generate_addition_examples_parallel(
         fixed_length_cot: Whether to use fixed-length chain-of-thought
         include_chain_of_thought: Whether to include chain-of-thought reasoning
         reversed_format: Whether to reverse digit order (no CoT)
+        zero_pad: Whether to zero-pad all numbers to fixed width
         num_workers: Number of worker processes (default: CPU count)
 
     Returns:
@@ -182,6 +245,7 @@ def generate_addition_examples_parallel(
             fixed_length_cot=fixed_length_cot,
             include_chain_of_thought=include_chain_of_thought,
             reversed_format=reversed_format,
+            zero_pad=zero_pad,
         )
 
     # Calculate examples per worker
@@ -202,6 +266,7 @@ def generate_addition_examples_parallel(
                     fixed_length_cot,
                     include_chain_of_thought,
                     reversed_format,
+                    zero_pad,
                 )
             )
 

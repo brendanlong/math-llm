@@ -13,6 +13,7 @@ class DatasetMetadata(TypedDict):
     include_chain_of_thought: bool
     fixed_length_cot: bool
     reversed_format: bool
+    zero_pad: bool
     num_examples: int
     split_ratios: dict[str, float]
     generation_timestamp: str

@@ -118,6 +118,11 @@ def main():
         action="store_true",
         help="Generate examples with reversed digit order (e.g., 8+21=02 for 8+12=20). Disables CoT.",
     )
+    parser.add_argument(
+        "--zero-pad",
+        action="store_true",
+        help="Zero-pad all numbers to fixed width. Operands padded to max-digits, results to max possible width. In reversed mode, zeros appear on right.",
+    )
 
     args = parser.parse_args()
 
@@ -143,6 +148,7 @@ def main():
         include_chain_of_thought=not args.no_include_cot and not args.reversed_format,
         max_operands=args.max_operands,
         reversed_format=args.reversed_format,
+        zero_pad=args.zero_pad,
         num_workers=args.num_workers,
     )
     print(f"Generated {len(examples)} examples")
@@ -178,6 +184,7 @@ def main():
         and not args.reversed_format,
         "fixed_length_cot": args.fixed_length_cot,
         "reversed_format": args.reversed_format,
+        "zero_pad": args.zero_pad,
         "num_examples": args.num_examples,
         "split_ratios": {
             "train": args.train_ratio,

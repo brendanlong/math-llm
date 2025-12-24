@@ -105,3 +105,76 @@ def test_no_chain_of_thought_snapshots(snapshot: Any) -> None:
         )
         == snapshot
     )
+
+
+def test_zero_pad_reversed_format_snapshots(snapshot: Any) -> None:
+    """Test generation with zero padding in reversed format."""
+    # Small operands
+    assert (
+        generate_addition_examples(
+            num_examples=3,
+            max_digits=2,
+            seed=42,
+            max_operands=2,
+            reversed_format=True,
+            zero_pad=True,
+        )
+        == snapshot
+    )
+
+    # Larger operands
+    assert (
+        generate_addition_examples(
+            num_examples=3,
+            max_digits=3,
+            seed=42,
+            max_operands=3,
+            reversed_format=True,
+            zero_pad=True,
+        )
+        == snapshot
+    )
+
+
+def test_zero_pad_normal_format_snapshots(snapshot: Any) -> None:
+    """Test generation with zero padding in normal format (no CoT)."""
+    # Small operands
+    assert (
+        generate_addition_examples(
+            num_examples=3,
+            max_digits=2,
+            seed=42,
+            max_operands=2,
+            include_chain_of_thought=False,
+            zero_pad=True,
+        )
+        == snapshot
+    )
+
+    # Larger operands
+    assert (
+        generate_addition_examples(
+            num_examples=3,
+            max_digits=3,
+            seed=42,
+            max_operands=3,
+            include_chain_of_thought=False,
+            zero_pad=True,
+        )
+        == snapshot
+    )
+
+
+def test_zero_pad_with_cot_snapshots(snapshot: Any) -> None:
+    """Test generation with zero padding and chain-of-thought."""
+    assert (
+        generate_addition_examples(
+            num_examples=3,
+            max_digits=2,
+            seed=42,
+            max_operands=2,
+            include_chain_of_thought=True,
+            zero_pad=True,
+        )
+        == snapshot
+    )
