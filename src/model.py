@@ -476,10 +476,8 @@ class UniversalTransformerModel(nn.Module):
         for loop_idx in range(self.n_loops):
             # Optionally add loop embedding to help model track iteration
             if self.use_loop_embeddings:
-                loop_emb = self.loop_embeddings(
-                    torch.tensor(loop_idx, device=input_ids.device)
-                )
-                x = x + loop_emb.unsqueeze(0).unsqueeze(0)
+                loop_emb = self.loop_embeddings.weight[loop_idx]
+                x = x + loop_emb
 
             # Apply all layers in this loop iteration
             for layer in self.layers:
