@@ -10,11 +10,13 @@ from pydantic import BaseModel, Field, model_validator
 class ModelConfig(BaseModel):
     """Configuration for model architecture.
 
-    Supports both standard transformer and universal transformer architectures.
-    Universal transformer adds n_loops and use_loop_embeddings parameters.
+    Supports three transformer architectures:
+    - standard: Traditional transformer with N unique layers
+    - universal: Weight-shared layers applied in loops
+    - feedback: Layers attend to shared memory of all previous layer outputs
     """
 
-    architecture: Literal["standard", "universal"] = "standard"
+    architecture: Literal["standard", "universal", "feedback"] = "standard"
 
     # Core architecture parameters
     d_model: int = Field(gt=0, description="Model dimension")

@@ -1,0 +1,6 @@
+architecture: feedback
+d_model: 64
+n_layers: 1
+n_heads: 4
+d_ff: 256
+dropout: 0.1
