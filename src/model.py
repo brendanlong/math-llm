@@ -47,43 +47,6 @@ def compute_loss(
     return loss_fct(shift_logits_flat, shift_labels_flat)
 
 
-def build_alibi_bias(
-    n_heads: int, seq_len: int, device: torch.device, dtype: torch.dtype = torch.float32
-) -> torch.Tensor:
-    """Build ALiBi (Attention with Linear Biases) position bias matrix.
-
-    Args:
-        n_heads: Number of attention heads
-        seq_len: Sequence length
-        device: Device to create tensor on
-        dtype: Data type of the tensor
-
-    Returns:
-        ALiBi bias tensor of shape (n_heads, seq_len, seq_len)
-    """
-    # Create position indices
-    positions = torch.arange(seq_len, device=device, dtype=dtype)
-
-    # Calculate slopes for each head
-    # For n heads, we want slopes that are geometric sequence of 2^(-8/n), 2^(-16/n), ...
-    slopes = torch.tensor(
-        [2 ** (-8 * (i + 1) / n_heads) for i in range(n_heads)],
-        device=device,
-        dtype=dtype,
-    )
-
-    # Create relative position matrix (j - i for all i, j)
-    # This gives negative values for future positions (j > i) and positive for past
-    relative_positions = positions.unsqueeze(1) - positions.unsqueeze(0)
-
-    # Apply slopes to get biases for each head
-    # We want to penalize attention to future positions, so multiply by negative slopes
-    # Shape: (n_heads, seq_len, seq_len)
-    alibi = -slopes.unsqueeze(1).unsqueeze(2) * relative_positions.unsqueeze(0).abs()
-
-    return alibi
-
-
 class TransformerBlock(nn.Module):
     """Single transformer decoder block with masked self-attention."""
 
@@ -119,16 +82,11 @@ class TransformerBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.attn_dropout = nn.Dropout(dropout)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        alibi_bias: torch.Tensor,
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through transformer block.
 
         Args:
             x: Input tensor of shape (batch_size, seq_len, d_model)
-            alibi_bias: ALiBi bias tensor of shape (n_heads, seq_len, seq_len)
 
         Returns:
             Output tensor of same shape as input
@@ -152,31 +110,13 @@ class TransformerBlock(nn.Module):
             .transpose(1, 2)
         )
 
-        # Create causal mask
-        causal_mask = torch.triu(
-            torch.ones(seq_len, seq_len, device=x.device), diagonal=1
-        )
-        causal_mask = causal_mask.masked_fill(causal_mask == 1, float("-inf"))
-
-        # Combine ALiBi bias with causal mask
-        # ALiBi bias shape: (n_heads, seq_len, seq_len) -> (batch_size, n_heads, seq_len, seq_len)
-        attn_mask = alibi_bias.unsqueeze(0).expand(batch_size, -1, -1, -1)
-        # Causal mask shape: (seq_len, seq_len) -> (batch_size, n_heads, seq_len, seq_len)
-        causal_mask = (
-            causal_mask.unsqueeze(0)
-            .unsqueeze(0)
-            .expand(batch_size, self.n_heads, -1, -1)
-        )
-        attn_mask = attn_mask + causal_mask
-
-        # Use optimized scaled dot-product attention
+        # Use optimized scaled dot-product attention with Flash Attention
         attn_out = F.scaled_dot_product_attention(
             query=q,
             key=k,
             value=v,
-            attn_mask=attn_mask,
             dropout_p=self.attn_dropout.p if self.training else 0.0,
-            is_causal=False,  # Always False since we're using explicit mask with ALiBi
+            is_causal=True,
         )
 
         # Reshape and project output
@@ -224,10 +164,12 @@ class ArithmeticModel(nn.Module):
 
         self.d_model = d_model
         self.max_seq_len = max_seq_len
+        self.n_heads = n_heads
+        self._embed_scale = math.sqrt(d_model)
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.n_heads = n_heads
+        self.position_embedding = nn.Embedding(max_seq_len, d_model)
 
         # Transformer layers
         self.layers = nn.ModuleList(
@@ -272,20 +214,19 @@ class ArithmeticModel(nn.Module):
             If labels provided: dict with 'loss' and 'logits'
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
-        _, seq_len = input_ids.shape
+        _batch_size, seq_len = input_ids.shape
 
-        # Token embeddings
+        # Token embeddings with scaling
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        x = x * math.sqrt(self.d_model)  # Scale embeddings
+        x.mul_(self._embed_scale)
 
-        # Build ALiBi bias
-        alibi_bias = build_alibi_bias(
-            self.n_heads, seq_len, input_ids.device, dtype=x.dtype
-        )
+        # Add positional embeddings
+        positions = torch.arange(seq_len, device=input_ids.device)
+        x = x + self.position_embedding(positions)
 
         # Apply transformer layers
         for layer in self.layers:
-            x = layer(x, alibi_bias=alibi_bias)
+            x = layer(x)
 
         # Final layer norm and projection
         x = self.ln_f(x)
@@ -408,11 +349,13 @@ class UniversalTransformerModel(nn.Module):
         self.max_seq_len = max_seq_len
         self.n_loops = n_loops
         self.n_layers = n_layers
+        self.n_heads = n_heads
         self.use_loop_embeddings = use_loop_embeddings
+        self._embed_scale = math.sqrt(d_model)
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.n_heads = n_heads
+        self.position_embedding = nn.Embedding(max_seq_len, d_model)
 
         # Optional loop embeddings to help model distinguish iterations
         if use_loop_embeddings:
@@ -461,27 +404,28 @@ class UniversalTransformerModel(nn.Module):
             If labels provided: dict with 'loss' and 'logits'
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
-        _, seq_len = input_ids.shape
+        _batch_size, seq_len = input_ids.shape
 
-        # Token embeddings
+        # Token embeddings with scaling
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        x = x * math.sqrt(self.d_model)  # Scale embeddings
+        x.mul_(self._embed_scale)
 
-        # Build ALiBi bias
-        alibi_bias = build_alibi_bias(
-            self.n_heads, seq_len, input_ids.device, dtype=x.dtype
-        )
+        # Add positional embeddings
+        positions = torch.arange(seq_len, device=input_ids.device)
+        x = x + self.position_embedding(positions)
+
+        # Pre-fetch all loop embeddings for efficiency
+        loop_embs = self.loop_embeddings.weight if self.use_loop_embeddings else None
 
         # Apply transformer layers repeatedly (Universal Transformer loop)
         for loop_idx in range(self.n_loops):
             # Optionally add loop embedding to help model track iteration
-            if self.use_loop_embeddings:
-                loop_emb = self.loop_embeddings.weight[loop_idx]
-                x = x + loop_emb
+            if loop_embs is not None:
+                x = x + loop_embs[loop_idx]
 
             # Apply all layers in this loop iteration
             for layer in self.layers:
-                x = layer(x, alibi_bias=alibi_bias)
+                x = layer(x)
 
         # Final layer norm and projection
         x = self.ln_f(x)
@@ -605,7 +549,6 @@ class FeedbackTransformerBlock(nn.Module):
         x: torch.Tensor,
         memory_keys: torch.Tensor,
         memory_values: torch.Tensor,
-        alibi_bias: torch.Tensor,
     ) -> torch.Tensor:
         """Forward pass through feedback transformer block.
 
@@ -613,7 +556,6 @@ class FeedbackTransformerBlock(nn.Module):
             x: Input tensor of shape (batch_size, d_model) - single position
             memory_keys: Keys from memory of shape (batch_size, mem_len, d_model)
             memory_values: Values from memory of shape (batch_size, mem_len, d_model)
-            alibi_bias: ALiBi bias tensor of shape (n_heads, 1, mem_len)
 
         Returns:
             Output tensor of shape (batch_size, d_model)
@@ -636,17 +578,13 @@ class FeedbackTransformerBlock(nn.Module):
             batch_size, mem_len, self.n_heads, self.head_dim
         ).transpose(1, 2)  # (batch_size, n_heads, mem_len, head_dim)
 
-        # ALiBi bias: (n_heads, 1, mem_len) -> (batch_size, n_heads, 1, mem_len)
-        attn_mask = alibi_bias.unsqueeze(0).expand(batch_size, -1, -1, -1)
-
-        # Scaled dot-product attention
+        # Scaled dot-product attention (no mask needed - only attending to past memory)
         attn_out = F.scaled_dot_product_attention(
             query=q,
             key=k,
             value=v,
-            attn_mask=attn_mask,
             dropout_p=self.attn_dropout.p if self.training else 0.0,
-            is_causal=False,  # Causality handled by only attending to past memory
+            is_causal=False,
         )
 
         # Reshape and project output
@@ -709,9 +647,11 @@ class FeedbackTransformerModel(nn.Module):
         self.max_seq_len = max_seq_len
         self.n_layers = n_layers
         self.n_heads = n_heads
+        self._embed_scale = math.sqrt(d_model)
 
-        # Embedding layer
+        # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
+        self.position_embedding = nn.Embedding(max_seq_len, d_model)
 
         # Layer weights for memory composition (L+1 scalars: embedding + L layers)
         # Initialized to zero so softmax gives uniform weights initially
@@ -768,12 +708,14 @@ class FeedbackTransformerModel(nn.Module):
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
         _batch_size, seq_len = input_ids.shape
-        device = input_ids.device
-        dtype = self.token_embedding.weight.dtype
 
         # Token embeddings with scaling
         embeddings = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        embeddings = embeddings * math.sqrt(self.d_model)
+        embeddings.mul_(self._embed_scale)
+
+        # Add positional embeddings
+        positions = torch.arange(seq_len, device=input_ids.device)
+        embeddings = embeddings + self.position_embedding(positions)
 
         # Compute softmax weights for layer combination
         weights = F.softmax(self.layer_weights, dim=0)
@@ -794,14 +736,9 @@ class FeedbackTransformerModel(nn.Module):
                 memory_keys = torch.stack(memory_keys_list, dim=1)
                 memory_values = torch.stack(memory_values_list, dim=1)
 
-                # Build ALiBi bias for current position attending to past
-                alibi_bias = build_alibi_bias(self.n_heads, t, device, dtype=dtype)[
-                    :, -1:, :
-                ]  # (n_heads, 1, t)
-
                 # Pass through transformer layers
                 for layer in self.layers:
-                    x = layer(x, memory_keys, memory_values, alibi_bias)
+                    x = layer(x, memory_keys, memory_values)
                     layer_outputs.append(x)
             else:
                 # First position: no memory to attend to, just pass through layers
