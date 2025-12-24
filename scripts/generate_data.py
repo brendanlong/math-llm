@@ -113,6 +113,11 @@ def main():
         default=multiprocessing.cpu_count(),
         help="Number of worker processes for parallel generation (default: %(default)s)",
     )
+    parser.add_argument(
+        "--reversed-format",
+        action="store_true",
+        help="Generate examples with reversed digit order (e.g., 8+21=02 for 8+12=20). Disables CoT.",
+    )
 
     args = parser.parse_args()
 
@@ -135,8 +140,9 @@ def main():
         max_digits=args.max_digits,
         seed=args.seed,
         fixed_length_cot=args.fixed_length_cot,
-        include_chain_of_thought=not args.no_include_cot,
+        include_chain_of_thought=not args.no_include_cot and not args.reversed_format,
         max_operands=args.max_operands,
+        reversed_format=args.reversed_format,
         num_workers=args.num_workers,
     )
     print(f"Generated {len(examples)} examples")
@@ -168,8 +174,10 @@ def main():
         "max_operands": args.max_operands,
         "seed": args.seed,
         "num_workers": args.num_workers,
-        "include_chain_of_thought": not args.no_include_cot,
+        "include_chain_of_thought": not args.no_include_cot
+        and not args.reversed_format,
         "fixed_length_cot": args.fixed_length_cot,
+        "reversed_format": args.reversed_format,
         "num_examples": args.num_examples,
         "split_ratios": {
             "train": args.train_ratio,

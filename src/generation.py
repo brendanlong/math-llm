@@ -57,6 +57,7 @@ def generate_addition_examples(
     max_operands: int = 3,
     fixed_length_cot: bool = False,
     include_chain_of_thought: bool = True,
+    reversed_format: bool = False,
 ) -> list[str]:
     """Generate addition examples with chain-of-thought for multi-digit problems.
 
@@ -66,9 +67,12 @@ def generate_addition_examples(
         seed: Random seed for reproducibility
         max_operands: The maximum number of operands to add
         fixed_length_cot: Whether to pad CoT to fixed length with <noop> tokens.
+        include_chain_of_thought: Whether to include chain-of-thought reasoning.
+        reversed_format: Whether to reverse digit order in operands and result (no CoT).
 
     Returns:
-        List of arithmetic expressions in format "a+b+c=<think>...</think>d<end>" with recursive reasoning
+        List of arithmetic expressions in format "a+b+c=<think>...</think>d<end>" with recursive reasoning,
+        or "a+b+c=d<end>" with reversed digits if reversed_format is True.
     """
     assert max_digits >= 1
     assert max_operands >= 2
@@ -108,28 +112,33 @@ def generate_addition_examples(
             operands.append(operand)
         result = sum(operands)
 
-        # Generate chain-of-thought reasoning
-        if include_chain_of_thought:
-            reasoning = (
-                generate_chain_of_thought(operands) if include_chain_of_thought else ""
-            )
-
-            # Apply fixed-length padding if enabled
-            if fixed_length_cot:
-                reasoning_length = len(tokenizer.encode(reasoning))
-                pad_length = cot_length - reasoning_length
-                if pad_length < 0:
-                    # Error out if our 4x assumption is wrong
-                    raise ValueError(
-                        f"Generated CoT is longer than fixed-length CoT: {reasoning_length} > {cot_length}: {'+'.join(map(str, operands))}={reasoning}"
-                    )
-                elif pad_length > 0:
-                    reasoning += "<noop>" * pad_length
-            reasoning = f"<think>{reasoning}</think>"
+        # Generate example based on format
+        if reversed_format:
+            # Reversed format: no CoT, digits reversed in operands and result
+            reversed_operands = [reverse_operand(op) for op in operands]
+            reversed_result = reverse_operand(result)
+            example = f"<begin>{'+'.join(reversed_operands)}={reversed_result}<end>"
         else:
-            reasoning = ""
+            # Standard format with optional CoT
+            if include_chain_of_thought:
+                reasoning = generate_chain_of_thought(operands)
 
-        example = f"<begin>{'+'.join(map(str, operands))}={reasoning}{result}<end>"
+                # Apply fixed-length padding if enabled
+                if fixed_length_cot:
+                    reasoning_length = len(tokenizer.encode(reasoning))
+                    pad_length = cot_length - reasoning_length
+                    if pad_length < 0:
+                        # Error out if our 4x assumption is wrong
+                        raise ValueError(
+                            f"Generated CoT is longer than fixed-length CoT: {reasoning_length} > {cot_length}: {'+'.join(map(str, operands))}={reasoning}"
+                        )
+                    elif pad_length > 0:
+                        reasoning += "<noop>" * pad_length
+                reasoning = f"<think>{reasoning}</think>"
+            else:
+                reasoning = ""
+
+            example = f"<begin>{'+'.join(map(str, operands))}={reasoning}{result}<end>"
         examples.append(example)
 
     return examples
@@ -142,6 +151,7 @@ def generate_addition_examples_parallel(
     max_operands: int = 3,
     fixed_length_cot: bool = False,
     include_chain_of_thought: bool = True,
+    reversed_format: bool = False,
     num_workers: int | None = None,
 ) -> list[str]:
     """Generate addition examples using multiple processes.
@@ -152,6 +162,8 @@ def generate_addition_examples_parallel(
         seed: Base random seed
         max_operands: Maximum number of operands
         fixed_length_cot: Whether to use fixed-length chain-of-thought
+        include_chain_of_thought: Whether to include chain-of-thought reasoning
+        reversed_format: Whether to reverse digit order (no CoT)
         num_workers: Number of worker processes (default: CPU count)
 
     Returns:
@@ -169,6 +181,7 @@ def generate_addition_examples_parallel(
             max_operands=max_operands,
             fixed_length_cot=fixed_length_cot,
             include_chain_of_thought=include_chain_of_thought,
+            reversed_format=reversed_format,
         )
 
     # Calculate examples per worker
@@ -188,6 +201,7 @@ def generate_addition_examples_parallel(
                     max_operands,
                     fixed_length_cot,
                     include_chain_of_thought,
+                    reversed_format,
                 )
             )
 
