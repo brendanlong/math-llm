@@ -2,12 +2,12 @@
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import IO, Optional
 
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from .tokenizer import VOCAB, tokenizer
+from .tokenizer import END_TOKEN_ID, EQUALS_TOKEN_ID, tokenizer
 
 
 class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
@@ -15,6 +15,7 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
 
     Uses line indexing to read JSONL files on demand, avoiding loading all data
     into memory at once. Only byte offsets are stored, not the actual data.
+    Uses a persistent file handle to avoid opening the file for each item.
     """
 
     def __init__(
@@ -30,8 +31,8 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
                        If None, reads from metadata.json in same directory.
         """
         self.data_path = Path(data_path)
-        self.end_token_id = VOCAB["<end>"]
-        self.equals_token_id = VOCAB["="]
+        self.end_token_id = END_TOKEN_ID
+        self.equals_token_id = EQUALS_TOKEN_ID
 
         # Build line index (stores byte offsets for each line)
         self.line_offsets: list[int] = []
@@ -51,6 +52,9 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         else:
             self.max_length = max_length
 
+        # Persistent file handle (opened lazily)
+        self._file_handle: Optional[IO[bytes]] = None
+
     def _build_line_index(self) -> None:
         """Build an index of byte offsets for each line in the file."""
         with open(self.data_path, "rb") as f:
@@ -59,6 +63,16 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
                 if line.strip():  # Skip empty lines
                     self.line_offsets.append(offset)
                 offset += len(line)
+
+    def _get_file_handle(self) -> IO[bytes]:
+        """Get the persistent file handle, opening it if needed.
+
+        Returns:
+            Open file handle for reading
+        """
+        if self._file_handle is None or self._file_handle.closed:
+            self._file_handle = open(self.data_path, "rb")
+        return self._file_handle
 
     def _read_line(self, idx: int) -> str:
         """Read a single line from the file by index.
@@ -69,10 +83,10 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
         Returns:
             The line content as a string (without newline)
         """
-        with open(self.data_path, "rb") as f:
-            f.seek(self.line_offsets[idx])
-            line = f.readline()
-            return line.decode("utf-8").rstrip("\n")
+        f = self._get_file_handle()
+        f.seek(self.line_offsets[idx])
+        line = f.readline()
+        return line.decode("utf-8").rstrip("\n")
 
     def __len__(self) -> int:
         return len(self.line_offsets)
@@ -110,6 +124,11 @@ class ArithmeticDataset(Dataset[dict[str, torch.Tensor]]):
             labels[original_length:] = -100
 
         return {"input_ids": input_ids, "labels": labels}
+
+    def __del__(self) -> None:
+        """Clean up file handle when dataset is garbage collected."""
+        if self._file_handle is not None and not self._file_handle.closed:
+            self._file_handle.close()
 
 
 def create_dataloader(

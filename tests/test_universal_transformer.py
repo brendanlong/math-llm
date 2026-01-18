@@ -252,9 +252,7 @@ class TestUniversalTransformerIntegration:
             assert logits.shape == (1, len(tokens), VOCAB_SIZE)
 
             # Test generation
-            generated = model.generate(
-                input_ids, max_new_tokens=3, end_token_id=VOCAB["<end>"]
-            )
+            generated = model.generate(input_ids, max_new_tokens=3)
 
             # Should be decodable
             decoded = tokenizer.decode(generated[0].tolist())
@@ -294,7 +292,6 @@ class TestUniversalTransformerGeneration:
             input_ids,
             max_new_tokens=5,
             temperature=1.0,
-            end_token_id=VOCAB["<end>"],
         )
 
         # All tokens should be in valid range
@@ -315,7 +312,6 @@ class TestUniversalTransformerGeneration:
             input_ids,
             max_new_tokens=20,
             temperature=0.01,
-            end_token_id=VOCAB["<end>"],
         )
 
         # If end token was generated, sequence should end there

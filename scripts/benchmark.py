@@ -8,7 +8,6 @@ import logging
 import os
 import platform
 import socket
-import sys
 import tempfile
 import time
 from dataclasses import asdict, dataclass
@@ -20,9 +19,6 @@ import torch
 from torch.utils.data import DataLoader
 from transformers.trainer import Trainer
 from transformers.training_args import TrainingArguments
-
-# Add parent directory to path to import src modules
-sys.path.append(str(Path(__file__).parent.parent))
 
 from src.config import load_config
 from src.data import ArithmeticDataset

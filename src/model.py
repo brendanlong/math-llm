@@ -5,16 +5,20 @@ learning basic arithmetic operations like addition.
 """
 
 import math
-from typing import Any, Optional, cast
+from abc import ABC, abstractmethod
+from typing import Literal, Optional
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
 from .config import ModelConfig
-from .tokenizer import VOCAB_SIZE
+from .tokenizer import END_TOKEN_ID, VOCAB_SIZE
 
 MAX_SEQUENCE_LENGTH = 1024
+
+# Architecture type literals for type safety
+ArchitectureType = Literal["standard", "universal", "feedback"]
 
 
 def softmax1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
@@ -97,7 +101,7 @@ class PoPE(nn.Module):
         mu_k = F.softplus(k)
 
         # Get frequencies buffer as tensor
-        freqs = cast(torch.Tensor, self.freqs)
+        freqs: torch.Tensor = self.freqs  # type: ignore[assignment]
 
         # Compute position-based phases: position * frequency
         # Shape: (seq_len, head_dim)
@@ -149,15 +153,20 @@ def compute_loss(
 
     Returns:
         Computed loss tensor
+
+    Raises:
+        ValueError: If logits and labels have incompatible sequence lengths
     """
     # Shift for next-token prediction
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
 
-    # Handle sequence length differences after shifting
-    min_len = min(shift_logits.shape[1], shift_labels.shape[1])
-    shift_logits = shift_logits[:, :min_len, :]
-    shift_labels = shift_labels[:, :min_len]
+    # Validate sequence lengths match after shifting
+    if shift_logits.shape[1] != shift_labels.shape[1]:
+        raise ValueError(
+            f"Sequence length mismatch: logits has {shift_logits.shape[1]}, "
+            f"labels has {shift_labels.shape[1]}"
+        )
 
     # Flatten tensors
     shift_logits_flat = shift_logits.view(-1, shift_logits.size(-1))
@@ -340,11 +349,136 @@ class TransformerBlock(nn.Module):
         return x
 
 
-class ArithmeticModel(nn.Module):
+def _init_weights(module: nn.Module) -> None:
+    """Initialize model weights using standard transformer initialization.
+
+    Args:
+        module: The module to initialize
+    """
+    if isinstance(module, nn.Linear):
+        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        # bias can be None when Linear is initialized with bias=False
+        if module.bias is not None:  # pyright: ignore[reportUnnecessaryComparison]
+            torch.nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.Embedding):
+        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    elif isinstance(module, nn.LayerNorm):
+        torch.nn.init.zeros_(module.bias)
+        torch.nn.init.ones_(module.weight)
+
+
+class BaseModel(nn.Module, ABC):
+    """Abstract base class for all arithmetic transformer models.
+
+    Provides common functionality for generation, parameter counting, and device access.
+    Subclasses must implement the forward() method.
+    """
+
+    # Class attribute to identify architecture type - subclasses should override
+    architecture: ArchitectureType
+
+    def __init__(self) -> None:
+        super().__init__()
+        # These will be set by subclasses
+        self.d_model: int
+        self.max_seq_len: int
+        self.n_heads: int
+
+    @abstractmethod
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
+    ) -> dict[str, torch.Tensor] | torch.Tensor:
+        """Forward pass through the model.
+
+        Args:
+            input_ids: Input token IDs of shape (batch_size, seq_len)
+            labels: Optional labels for computing loss
+
+        Returns:
+            If labels provided: dict with 'loss' and 'logits'
+            Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
+        """
+        ...
+
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 20,
+        temperature: float = 1.0,
+        top_k: Optional[int] = None,
+    ) -> torch.Tensor:
+        """Generate tokens autoregressively.
+
+        Note: This method only supports batch_size=1. For batched generation,
+        call this method separately for each sequence.
+
+        Args:
+            input_ids: Initial input tokens of shape (1, seq_len)
+            max_new_tokens: Maximum number of new tokens to generate
+            temperature: Sampling temperature
+            top_k: Optional top-k sampling
+
+        Returns:
+            Generated tokens of shape (1, seq_len + num_generated)
+
+        Raises:
+            ValueError: If batch_size is not 1
+        """
+        if input_ids.shape[0] != 1:
+            raise ValueError(
+                f"generate() only supports batch_size=1, got {input_ids.shape[0]}. "
+                "Call generate() separately for each sequence in a batch."
+            )
+
+        self.eval()
+
+        for _ in range(max_new_tokens):
+            # Get predictions for current sequence
+            with torch.no_grad():
+                outputs = self.forward(input_ids)
+                # Extract logits (forward returns dict when labels provided, tensor otherwise)
+                if isinstance(outputs, dict):
+                    logits = outputs["logits"]
+                else:
+                    logits = outputs
+
+                # Get logits for last token
+                logits = logits[:, -1, :] / temperature
+
+                # Apply top-k filtering if specified
+                if top_k is not None:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float("inf")
+
+                # Sample next token
+                probs = F.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+
+                # Append to sequence
+                input_ids = torch.cat([input_ids, next_token], dim=1)
+
+                # Stop if end token is generated
+                if next_token.item() == END_TOKEN_ID:
+                    break
+
+        return input_ids
+
+    def count_parameters(self) -> int:
+        """Count total number of trainable parameters."""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+    @property
+    def device(self) -> torch.device:
+        """Get the device of the model."""
+        return next(self.parameters()).device
+
+
+class ArithmeticModel(BaseModel):
     """Small transformer model for arithmetic tasks."""
 
-    # Class attribute to identify architecture type
-    architecture: str = "standard"
+    architecture: ArchitectureType = "standard"
 
     def __init__(
         self,
@@ -406,33 +540,17 @@ class ArithmeticModel(nn.Module):
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
         # Initialize weights
-        self.apply(self._init_weights)
-
-    def _init_weights(self, module: nn.Module) -> None:
-        """Initialize model weights."""
-        if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            bias = getattr(module, "bias", None)
-            if bias is not None:
-                torch.nn.init.zeros_(bias)
-        elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.LayerNorm):
-            torch.nn.init.zeros_(module.bias)
-            torch.nn.init.ones_(module.weight)
+        self.apply(_init_weights)
 
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
-        **_kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
-            attention_mask: Optional attention mask (unused)
             labels: Optional labels for computing loss
 
         Returns:
@@ -467,70 +585,8 @@ class ArithmeticModel(nn.Module):
 
         return logits
 
-    def generate(
-        self,
-        input_ids: torch.Tensor,
-        max_new_tokens: int = 20,
-        temperature: float = 1.0,
-        top_k: Optional[int] = None,
-        end_token_id: int = 12,
-    ) -> torch.Tensor:
-        """Generate tokens autoregressively.
 
-        Args:
-            input_ids: Initial input tokens of shape (batch_size, seq_len)
-            max_new_tokens: Maximum number of new tokens to generate
-            temperature: Sampling temperature
-            top_k: Optional top-k sampling
-            end_token_id: Token ID for end-of-sequence
-
-        Returns:
-            Generated tokens of shape (batch_size, seq_len + num_generated)
-        """
-        self.eval()
-
-        for _ in range(max_new_tokens):
-            # Get predictions for current sequence
-            with torch.no_grad():
-                outputs = self.forward(input_ids)
-                # Extract logits (forward returns dict when labels provided, tensor otherwise)
-                if isinstance(outputs, dict):
-                    logits = outputs["logits"]
-                else:
-                    logits = outputs
-
-                # Get logits for last token
-                logits = logits[:, -1, :] / temperature
-
-                # Apply top-k filtering if specified
-                if top_k is not None:
-                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                    logits[logits < v[:, [-1]]] = -float("inf")
-
-                # Sample next token
-                probs = F.softmax(logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
-
-                # Append to sequence
-                input_ids = torch.cat([input_ids, next_token], dim=1)
-
-                # Stop if end token is generated
-                if next_token.item() == end_token_id:
-                    break
-
-        return input_ids
-
-    def count_parameters(self) -> int:
-        """Count total number of trainable parameters."""
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    @property
-    def device(self) -> torch.device:
-        """Get the device of the model."""
-        return next(self.parameters()).device
-
-
-class UniversalTransformerModel(nn.Module):
+class UniversalTransformerModel(BaseModel):
     """Universal Transformer model with weight sharing across depth.
 
     Unlike standard transformers with N unique layers, Universal Transformers
@@ -543,8 +599,7 @@ class UniversalTransformerModel(nn.Module):
     but with 1/4 the parameters.
     """
 
-    # Class attribute to identify architecture type
-    architecture: str = "universal"
+    architecture: ArchitectureType = "universal"
 
     def __init__(
         self,
@@ -617,33 +672,17 @@ class UniversalTransformerModel(nn.Module):
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
         # Initialize weights
-        self.apply(self._init_weights)
-
-    def _init_weights(self, module: nn.Module) -> None:
-        """Initialize model weights."""
-        if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            bias = getattr(module, "bias", None)
-            if bias is not None:
-                torch.nn.init.zeros_(bias)
-        elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.LayerNorm):
-            torch.nn.init.zeros_(module.bias)
-            torch.nn.init.ones_(module.weight)
+        self.apply(_init_weights)
 
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
-        **_kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model.
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
-            attention_mask: Optional attention mask (unused)
             labels: Optional labels for computing loss
 
         Returns:
@@ -686,68 +725,6 @@ class UniversalTransformerModel(nn.Module):
             return {"loss": loss, "logits": logits}
 
         return logits
-
-    def generate(
-        self,
-        input_ids: torch.Tensor,
-        max_new_tokens: int = 20,
-        temperature: float = 1.0,
-        top_k: Optional[int] = None,
-        end_token_id: int = 12,
-    ) -> torch.Tensor:
-        """Generate tokens autoregressively.
-
-        Args:
-            input_ids: Initial input tokens of shape (batch_size, seq_len)
-            max_new_tokens: Maximum number of new tokens to generate
-            temperature: Sampling temperature
-            top_k: Optional top-k sampling
-            end_token_id: Token ID for end-of-sequence
-
-        Returns:
-            Generated tokens of shape (batch_size, seq_len + num_generated)
-        """
-        self.eval()
-
-        for _ in range(max_new_tokens):
-            # Get predictions for current sequence
-            with torch.no_grad():
-                outputs = self.forward(input_ids)
-                # Extract logits (forward returns dict when labels provided, tensor otherwise)
-                if isinstance(outputs, dict):
-                    logits = outputs["logits"]
-                else:
-                    logits = outputs
-
-                # Get logits for last token
-                logits = logits[:, -1, :] / temperature
-
-                # Apply top-k filtering if specified
-                if top_k is not None:
-                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                    logits[logits < v[:, [-1]]] = -float("inf")
-
-                # Sample next token
-                probs = F.softmax(logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
-
-                # Append to sequence
-                input_ids = torch.cat([input_ids, next_token], dim=1)
-
-                # Stop if end token is generated
-                if next_token.item() == end_token_id:
-                    break
-
-        return input_ids
-
-    def count_parameters(self) -> int:
-        """Count total number of trainable parameters."""
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    @property
-    def device(self) -> torch.device:
-        """Get the device of the model."""
-        return next(self.parameters()).device
 
     @property
     def sequential_depth(self) -> int:
@@ -892,7 +869,7 @@ class FeedbackTransformerBlock(nn.Module):
         return x
 
 
-class FeedbackTransformerModel(nn.Module):
+class FeedbackTransformerModel(BaseModel):
     """Feedback Transformer model with shared memory attention.
 
     Unlike standard transformers where each layer attends to same-layer representations,
@@ -911,8 +888,7 @@ class FeedbackTransformerModel(nn.Module):
     memory-based attention pattern. Use learned positional embeddings instead.
     """
 
-    # Class attribute to identify architecture type
-    architecture: str = "feedback"
+    architecture: ArchitectureType = "feedback"
 
     def __init__(
         self,
@@ -985,33 +961,17 @@ class FeedbackTransformerModel(nn.Module):
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
         # Initialize weights
-        self.apply(self._init_weights)
-
-    def _init_weights(self, module: nn.Module) -> None:
-        """Initialize model weights."""
-        if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            bias = getattr(module, "bias", None)
-            if bias is not None:
-                torch.nn.init.zeros_(bias)
-        elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.LayerNorm):
-            torch.nn.init.zeros_(module.bias)
-            torch.nn.init.ones_(module.weight)
+        self.apply(_init_weights)
 
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
-        **_kwargs: Any,
     ) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass through the model (sequential over sequence).
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
-            attention_mask: Optional attention mask (unused)
             labels: Optional labels for computing loss
 
         Returns:
@@ -1055,12 +1015,12 @@ class FeedbackTransformerModel(nn.Module):
                 # First position: no memory to attend to, just pass through layers
                 # with no attention (layers still do feed-forward)
                 for layer in self.layers:
-                    # Cast to FeedbackTransformerBlock for type checker
-                    block = cast(FeedbackTransformerBlock, layer)
+                    # Cast to proper type for pyright
+                    fb_layer: FeedbackTransformerBlock = layer  # type: ignore[assignment]
                     # For first position, do a simplified forward without attention
                     # Just apply feed-forward with residuals
-                    ff_out = block.feed_forward(x)
-                    x = block.norm2(x + block.dropout(ff_out))
+                    ff_out = fb_layer.feed_forward(x)
+                    x = fb_layer.norm2(x + fb_layer.dropout(ff_out))
                     layer_outputs.append(x)
 
             # Compute memory vector as weighted sum of all layer outputs
@@ -1086,67 +1046,6 @@ class FeedbackTransformerModel(nn.Module):
 
         return logits
 
-    def generate(
-        self,
-        input_ids: torch.Tensor,
-        max_new_tokens: int = 20,
-        temperature: float = 1.0,
-        top_k: Optional[int] = None,
-        end_token_id: int = 12,
-    ) -> torch.Tensor:
-        """Generate tokens autoregressively.
-
-        Args:
-            input_ids: Initial input tokens of shape (batch_size, seq_len)
-            max_new_tokens: Maximum number of new tokens to generate
-            temperature: Sampling temperature
-            top_k: Optional top-k sampling
-            end_token_id: Token ID for end-of-sequence
-
-        Returns:
-            Generated tokens of shape (batch_size, seq_len + num_generated)
-        """
-        self.eval()
-
-        for _ in range(max_new_tokens):
-            # Get predictions for current sequence
-            with torch.no_grad():
-                outputs = self.forward(input_ids)
-                if isinstance(outputs, dict):
-                    logits = outputs["logits"]
-                else:
-                    logits = outputs
-
-                # Get logits for last token
-                logits = logits[:, -1, :] / temperature
-
-                # Apply top-k filtering if specified
-                if top_k is not None:
-                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                    logits[logits < v[:, [-1]]] = -float("inf")
-
-                # Sample next token
-                probs = F.softmax(logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
-
-                # Append to sequence
-                input_ids = torch.cat([input_ids, next_token], dim=1)
-
-                # Stop if end token is generated
-                if next_token.item() == end_token_id:
-                    break
-
-        return input_ids
-
-    def count_parameters(self) -> int:
-        """Count total number of trainable parameters."""
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    @property
-    def device(self) -> torch.device:
-        """Get the device of the model."""
-        return next(self.parameters()).device
-
 
 # Type alias for any model type
 Model = ArithmeticModel | UniversalTransformerModel | FeedbackTransformerModel
@@ -1161,6 +1060,9 @@ def create_model_from_config(config: ModelConfig) -> Model:
     Returns:
         Model instance (ArithmeticModel, UniversalTransformerModel, or
         FeedbackTransformerModel)
+
+    Raises:
+        ValueError: If architecture is unknown or required parameters are missing
     """
     if config.architecture == "standard":
         return ArithmeticModel(

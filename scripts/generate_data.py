@@ -14,12 +14,8 @@ The data is saved as JSON files with train/validation/test splits (80/10/10).
 import argparse
 import json
 import multiprocessing
-import sys
 from datetime import datetime
 from pathlib import Path
-
-# Add parent directory to path to import src modules
-sys.path.append(str(Path(__file__).parent.parent))
 
 from src.generation import generate_addition_examples_parallel, split_data
 from src.types import DatasetMetadata
