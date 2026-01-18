@@ -16,16 +16,16 @@ import json
 import logging
 import random
 from pathlib import Path
-from typing import Sized, cast
+from typing import Any, Sized, cast
 
 import numpy as np
 import torch
-import wandb
 from torch.profiler import ProfilerActivity, profile, schedule
 from transformers.trainer import Trainer
 from transformers.trainer_utils import set_seed
 from transformers.training_args import TrainingArguments
 
+import wandb
 from src.config import load_config, save_config
 from src.data import ArithmeticDataset, load_splits
 from src.model import create_model_from_config
@@ -166,6 +166,12 @@ def main() -> None:
         help="Resume training from existing checkpoint in output directory",
     )
     parser.add_argument(
+        "--wandb-group",
+        type=str,
+        default=None,
+        help="W&B group name for organizing related runs",
+    )
+    parser.add_argument(
         "--profile",
         action="store_true",
         help="Run one epoch with torch.profiler and save results",
@@ -219,23 +225,28 @@ def main() -> None:
         wandb_name = (
             f"arithmetic-{config_name}-{args.batch_size}batch-{args.learning_rate}lr"
         )
-        wandb.init(
-            project="math-llm",
-            config={
+        wandb_kwargs: dict[str, Any] = {
+            "project": "math-llm",
+            "config": {
                 "config_file": str(args.config),
                 "architecture": model_config.architecture,
                 "d_model": model_config.d_model,
                 "n_layers": model_config.n_layers,
                 "n_heads": model_config.n_heads,
                 "d_ff": model_config.d_ff,
+                "positional_encoding": model_config.positional_encoding,
+                "softmax_variant": model_config.softmax_variant,
                 "batch_size": args.batch_size,
                 "learning_rate": args.learning_rate,
                 "num_epochs": args.num_epochs,
                 "max_length": args.max_length,
                 "seed": args.seed,
             },
-            name=wandb_name,
-        )
+            "name": wandb_name,
+        }
+        if args.wandb_group:
+            wandb_kwargs["group"] = args.wandb_group
+        wandb.init(**wandb_kwargs)
 
     logger.info(f"Train samples: {len(cast(Sized, train_loader.dataset))}")
     logger.info(f"Validation samples: {len(cast(Sized, val_loader.dataset))}")
