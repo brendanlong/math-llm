@@ -24,6 +24,9 @@ The current CoT looks like this:
 # Setup development environment
 ./setup.sh
 
+# Install package in development mode (required for imports to work)
+pip install -e .
+
 # Generate training data
 python scripts/generate_data.py
 
@@ -278,7 +281,7 @@ The interactive script accepts various input formats:
 ## Model Details
 
 - **Architecture**: Small transformer decoder (1M-10M parameters)
-- **Vocabulary**: 16 tokens (digits 0-9, +, =, <end>, <think>, </think>, <noop>)
+- **Vocabulary**: 17 tokens (digits 0-9, +, =, <end>, <think>, </think>, <noop>, <begin>)
 - **Context Length**: 128 tokens (sufficient for chain-of-thought reasoning)
 - **Task**: Next-token prediction on arithmetic expressions with reasoning
 - **Formats**:

@@ -11,42 +11,36 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import Literal, Optional
 
-import colorlog
 import torch
 import torch.nn.functional as F
-from safetensors.torch import load_file
 
-# Add parent directory to path to import src modules
-sys.path.append(str(Path(__file__).parent.parent))
-
-from src.config import find_config_in_checkpoint, load_config
-from src.model import Model, create_model_from_config
-from src.tokenizer import VOCAB, tokenizer
+from src.config import find_config_in_checkpoint
+from src.model import Model
+from src.tokenizer import END_TOKEN_ID, tokenizer
+from src.utils import get_device, load_model, setup_logging
 
 
 def greedy_generate_with_probs(
     model: Model,
     input_ids: torch.Tensor,
     max_new_tokens: int = 20,
-    end_token_id: int = 12,
-) -> Tuple[torch.Tensor, List[float]]:
+) -> tuple[torch.Tensor, list[float]]:
     """Generate tokens using greedy decoding (argmax) and return probabilities.
 
     Args:
         model: The model to use for generation
-        input_ids: Initial input tokens of shape (batch_size, seq_len)
+        input_ids: Initial input tokens of shape (1, seq_len)
         max_new_tokens: Maximum number of new tokens to generate
-        end_token_id: Token ID for end-of-sequence
 
     Returns:
         Tuple of:
-            - Generated tokens of shape (batch_size, seq_len + num_generated)
+            - Generated tokens of shape (1, seq_len + num_generated)
             - List of probabilities for each generated token
     """
     model.eval()
-    probabilities = []
+    probabilities: list[float] = []
 
     for _ in range(max_new_tokens):
         # Get predictions for current sequence
@@ -76,7 +70,7 @@ def greedy_generate_with_probs(
             input_ids = torch.cat([input_ids, next_token], dim=1)
 
             # Stop if we hit the end token
-            if next_token.item() == end_token_id:
+            if next_token.item() == END_TOKEN_ID:
                 break
 
     return input_ids, probabilities
@@ -86,22 +80,18 @@ def greedy_generate(
     model: Model,
     input_ids: torch.Tensor,
     max_new_tokens: int = 20,
-    end_token_id: int = 12,
 ) -> torch.Tensor:
     """Generate tokens using greedy decoding (argmax).
 
     Args:
         model: The model to use for generation
-        input_ids: Initial input tokens of shape (batch_size, seq_len)
+        input_ids: Initial input tokens of shape (1, seq_len)
         max_new_tokens: Maximum number of new tokens to generate
-        end_token_id: Token ID for end-of-sequence
 
     Returns:
-        Generated tokens of shape (batch_size, seq_len + num_generated)
+        Generated tokens of shape (1, seq_len + num_generated)
     """
-    generated_ids, _ = greedy_generate_with_probs(
-        model, input_ids, max_new_tokens, end_token_id
-    )
+    generated_ids, _ = greedy_generate_with_probs(model, input_ids, max_new_tokens)
     return generated_ids
 
 
@@ -138,63 +128,6 @@ def get_probability_background(prob: float) -> str:
         return "\033[48;5;252m"  # Very near white (<10%)
 
 
-def setup_logging() -> None:
-    """Setup colored logging configuration."""
-    console_handler = colorlog.StreamHandler()
-    console_handler.setFormatter(
-        colorlog.ColoredFormatter(
-            "%(log_color)s%(levelname)-8s%(reset)s %(message)s",
-            log_colors={
-                "DEBUG": "cyan",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "red,bg_white",
-            },
-        )
-    )
-
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(console_handler)
-
-
-def load_model(
-    checkpoint_path: Path,
-    config_path: Path,
-) -> Model:
-    """Load model from checkpoint.
-
-    Args:
-        checkpoint_path: Path to model checkpoint
-        config_path: Path to model configuration YAML file
-
-    Returns:
-        Loaded model
-    """
-    config = load_config(config_path)
-    model = create_model_from_config(config)
-
-    # Load checkpoint - handle different formats
-    if checkpoint_path.suffix == ".safetensors":
-        state_dict = load_file(str(checkpoint_path))
-        model.load_state_dict(state_dict)
-    else:
-        # Load PyTorch format
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
-
-        # Handle different checkpoint formats
-        if "model_state_dict" in checkpoint:
-            model.load_state_dict(checkpoint["model_state_dict"])
-        elif isinstance(checkpoint, dict) and "state_dict" in checkpoint:
-            model.load_state_dict(checkpoint["state_dict"])
-        else:
-            # Assume checkpoint is the state dict directly
-            model.load_state_dict(checkpoint)
-
-    return model
-
-
 class ThinkingNode:
     """Represents a node in the thinking tree structure."""
 
@@ -202,7 +135,7 @@ class ThinkingNode:
         self,
         tag_type: Literal["think", "text"],
         content: str,
-        children: Optional[List["ThinkingNode"]] = None,
+        children: Optional[list["ThinkingNode"]] = None,
     ):
         self.tag_type = tag_type
         self.content = content
@@ -212,7 +145,7 @@ class ThinkingNode:
         return f"ThinkingNode({self.tag_type}, content='{self.content[:20]}...', children={len(self.children)})"
 
 
-def parse_thinking_tags(text: str) -> List[ThinkingNode]:
+def parse_thinking_tags(text: str) -> list[ThinkingNode]:
     """Parse thinking tags using a streaming-like approach with tag open/close events.
 
     Args:
@@ -221,8 +154,8 @@ def parse_thinking_tags(text: str) -> List[ThinkingNode]:
     Returns:
         List of ThinkingNode objects representing the parsed structure
     """
-    nodes = []
-    stack = []  # Stack for nested tags: [(tag_type, start_pos, content_start)]
+    nodes: list[ThinkingNode] = []
+    stack: list[tuple[str, int, int]] = []  # [(tag_type, start_pos, content_start)]
     i = 0
 
     while i < len(text):
@@ -260,12 +193,13 @@ def parse_thinking_tags(text: str) -> List[ThinkingNode]:
             # Closing tag event
             if stack and stack[-1][0] == tag_type:
                 # Matching closing tag found
-                parent_tag_type, start_pos, content_start = stack.pop()
+                _parent_tag_type, start_pos, content_start = stack.pop()
                 thinking_content = text[content_start:tag_pos]
 
                 # Recursively parse the content inside this tag
                 children = parse_thinking_tags(thinking_content)
-                node = ThinkingNode(parent_tag_type, thinking_content, children)
+                # _parent_tag_type is always "think" since that's the only tag we match
+                node = ThinkingNode("think", thinking_content, children)
 
                 if stack:
                     # We're still inside another tag, this will be handled later
@@ -298,13 +232,12 @@ def get_top_k_predictions(
     model: Model,
     input_ids: torch.Tensor,
     k: int = 5,
-) -> List[Tuple[str, float, int]]:
+) -> list[tuple[str, float, int]]:
     """Get top-k predictions for next token with probabilities.
 
     Args:
         model: The model to use for predictions
         input_ids: Current sequence of token IDs
-        tokenizer: Tokenizer instance
         k: Number of top predictions to return
 
     Returns:
@@ -330,7 +263,7 @@ def get_top_k_predictions(
         top_probs, top_indices = torch.topk(probs[0], min(k, probs.size(-1)))
 
         # Convert to list of (token, probability, token_id) tuples
-        predictions = []
+        predictions: list[tuple[str, float, int]] = []
         for prob, idx in zip(top_probs.tolist(), top_indices.tolist()):
             token_str = tokenizer.decode([idx])
             predictions.append((token_str, prob, idx))
@@ -338,7 +271,7 @@ def get_top_k_predictions(
     return predictions
 
 
-def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
+def display_thinking_tree(nodes: list[ThinkingNode], indent: int = 0) -> None:
     """Display thinking tree structure with proper indentation.
 
     Args:
@@ -356,7 +289,7 @@ def display_thinking_tree(nodes: List[ThinkingNode], indent: int = 0) -> None:
                     print(f"{indent_str}{line.strip()}")
         else:
             # Display thinking tag
-            tag_symbol = "🧮"
+            tag_symbol = "\U0001f9ee"  # abacus emoji
             print(f"{indent_str}{tag_symbol} Thinking:")
 
             # Recursively display children with increased indent
@@ -379,13 +312,12 @@ def interactive_session_with_probabilities(
 
     Args:
         model: Loaded model
-        tokenizer: Tokenizer instance
         device: Device to run on
         max_new_tokens: Maximum tokens to generate
     """
     model.eval()
 
-    print("\n🧮 Math LLM Interactive Inference (Probability Mode)")
+    print("\n\U0001f9ee Math LLM Interactive Inference (Probability Mode)")
     print("=" * 50)
     print("This mode shows top-5 next token predictions with probabilities.")
     print("You can:")
@@ -398,11 +330,11 @@ def interactive_session_with_probabilities(
     while True:
         try:
             # Get initial input
-            user_input = input("\n➤ Enter initial expression: ").strip()
+            user_input = input("\n\u27a4 Enter initial expression: ").strip()
 
             # Check for exit commands
             if user_input.lower() in ["quit", "exit", "q"]:
-                print("\nGoodbye! 👋")
+                print("\nGoodbye! \U0001f44b")
                 break
 
             # Skip empty input
@@ -422,15 +354,15 @@ def interactive_session_with_probabilities(
                         input_ids, dtype=torch.long, device=device
                     ).unsqueeze(0)
                 except ValueError as e:
-                    print(f"⚠️  Error encoding input: {e}")
+                    print(f"\u26a0\ufe0f  Error encoding input: {e}")
                     break
 
                 # Get top-k predictions with temperature=1.0 for probability display
                 predictions = get_top_k_predictions(model, input_tensor, k=5)
 
                 # Display current state
-                print(f"\n📝 Current: {current_text}")
-                print("\n🎯 Top 5 predictions:")
+                print(f"\n\U0001f4dd Current: {current_text}")
+                print("\n\U0001f3af Top 5 predictions:")
                 for i, (token, prob, token_id) in enumerate(predictions):
                     # Format token display
                     display_token = token
@@ -440,25 +372,25 @@ def interactive_session_with_probabilities(
 
                 # Get user choice
                 choice = input(
-                    "\n➜ Press ENTER for top choice, or type token(s): "
+                    "\n\u279c Press ENTER for top choice, or type token(s): "
                 ).strip()
 
                 if choice.lower() == "done":
-                    print(f"\n✅ Final: {current_text}")
+                    print(f"\n\u2705 Final: {current_text}")
                     break
                 elif choice.lower() in ["quit", "exit", "q"]:
-                    print("\nGoodbye! 👋")
+                    print("\nGoodbye! \U0001f44b")
                     return
                 elif choice == "":
                     # Accept top prediction
                     top_token = predictions[0][0]
                     current_text += top_token
                     token_count += 1
-                    print(f"   → Added: '{top_token}'")
+                    print(f"   \u2192 Added: '{top_token}'")
 
                     # Check if we hit end token
-                    if predictions[0][2] == VOCAB["<end>"]:
-                        print(f"\n✅ Complete: {current_text}")
+                    if predictions[0][2] == END_TOKEN_ID:
+                        print(f"\n\u2705 Complete: {current_text}")
                         break
                 else:
                     # User provided custom token(s)
@@ -469,20 +401,20 @@ def interactive_session_with_probabilities(
                         # Count how many tokens were added
                         new_ids = tokenizer.encode(choice)
                         token_count += len(new_ids)
-                        print(f"   → Added: '{choice}' ({len(new_ids)} tokens)")
+                        print(f"   \u2192 Added: '{choice}' ({len(new_ids)} tokens)")
                     except ValueError as e:
-                        print(f"⚠️  Error: Invalid token sequence - {e}")
+                        print(f"\u26a0\ufe0f  Error: Invalid token sequence - {e}")
                         continue
 
             if token_count >= max_new_tokens:
-                print(f"\n⚠️  Hit token limit ({max_new_tokens} tokens)")
-                print(f"✅ Final: {current_text}")
+                print(f"\n\u26a0\ufe0f  Hit token limit ({max_new_tokens} tokens)")
+                print(f"\u2705 Final: {current_text}")
 
         except (EOFError, KeyboardInterrupt):
-            print("\n\nGoodbye! 👋")
+            print("\n\nGoodbye! \U0001f44b")
             break
         except Exception as e:
-            print(f"⚠️  Unexpected error: {e}")
+            print(f"\u26a0\ufe0f  Unexpected error: {e}")
 
 
 def interactive_session(
@@ -494,19 +426,18 @@ def interactive_session(
 
     Args:
         model: Loaded model
-        tokenizer: Tokenizer instance
         device: Device to run on
         max_new_tokens: Maximum tokens to generate (default: 512)
     """
     model.eval()
 
-    print("\n🧮 Math LLM Interactive Inference")
+    print("\n\U0001f9ee Math LLM Interactive Inference")
     print("=" * 40)
     print("Enter arithmetic expressions for the model to complete.")
     print("Examples:")
-    print("  '3+5=' → model completes with '8<end>'")
-    print("  '12+34=' → model shows reasoning and completes with '46<end>'")
-    print("  '7+' → model completes with operand and result")
+    print("  '3+5=' \u2192 model completes with '8<end>'")
+    print("  '12+34=' \u2192 model shows reasoning and completes with '46<end>'")
+    print("  '7+' \u2192 model completes with operand and result")
     print("\nToken backgrounds show model confidence:")
     print("  Black = 100% | Dark grey = 90%+ | Light grey = <50%")
     print("\nType 'quit' or 'exit' to stop.")
@@ -515,11 +446,11 @@ def interactive_session(
     while True:
         try:
             # Get user input
-            user_input = input("\n➤ Enter expression: ").strip()
+            user_input = input("\n\u27a4 Enter expression: ").strip()
 
             # Check for exit commands
             if user_input.lower() in ["quit", "exit", "q"]:
-                print("\nGoodbye! 👋")
+                print("\nGoodbye! \U0001f44b")
                 break
 
             # Skip empty input
@@ -533,11 +464,11 @@ def interactive_session(
                     input_ids, dtype=torch.long, device=device
                 ).unsqueeze(0)
             except ValueError as e:
-                print(f"⚠️  Error encoding input: {e}")
+                print(f"\u26a0\ufe0f  Error encoding input: {e}")
                 continue
 
             # Generate completion
-            print(f"💭 Generating completion for: {user_input}")
+            print(f"\U0001f4ad Generating completion for: {user_input}")
 
             with torch.no_grad():
                 initial_length = input_tensor.size(1)
@@ -546,7 +477,6 @@ def interactive_session(
                     model,
                     input_tensor,
                     max_new_tokens=max_new_tokens,
-                    end_token_id=VOCAB["<end>"],
                 )
 
             # Check if we hit the token limit
@@ -554,9 +484,9 @@ def interactive_session(
             tokens_generated = final_length - initial_length
             last_token = generated_ids[0, -1].item()
 
-            if tokens_generated >= max_new_tokens and last_token != VOCAB["<end>"]:
+            if tokens_generated >= max_new_tokens and last_token != END_TOKEN_ID:
                 print(
-                    f"⚠️  Warning: Hit token limit ({max_new_tokens} tokens) - generation may be incomplete"
+                    f"\u26a0\ufe0f  Warning: Hit token limit ({max_new_tokens} tokens) - generation may be incomplete"
                 )
 
             # Decode result
@@ -564,7 +494,7 @@ def interactive_session(
                 generated_text = tokenizer.decode(generated_ids[0].cpu().tolist())
 
                 # Build output with colored backgrounds for generated tokens
-                print("✨ Model output: ", end="")
+                print("\u2728 Model output: ", end="")
 
                 # Print input without background
                 print(user_input, end="")
@@ -595,21 +525,21 @@ def interactive_session(
 
                 if has_thinking_tags:
                     # Display thinking tree structure
-                    print("🤔 Chain of thought:")
+                    print("\U0001f914 Chain of thought:")
                     display_thinking_tree(thinking_nodes, indent=1)
 
                 print(
-                    f"✅ Answer: {''.join(n.content for n in thinking_nodes if n.tag_type == 'text').removesuffix('<end>')}"
+                    f"\u2705 Answer: {''.join(n.content for n in thinking_nodes if n.tag_type == 'text').removesuffix('<end>')}"
                 )
 
             except Exception as e:
-                print(f"⚠️  Error decoding output: {e}")
+                print(f"\u26a0\ufe0f  Error decoding output: {e}")
 
         except (EOFError, KeyboardInterrupt):
-            print("\n\nGoodbye! 👋")
+            print("\n\nGoodbye! \U0001f44b")
             break
         except Exception as e:
-            print(f"⚠️  Unexpected error: {e}")
+            print(f"\u26a0\ufe0f  Unexpected error: {e}")
 
 
 def main() -> None:
@@ -663,11 +593,7 @@ def main() -> None:
     setup_logging()
 
     # Determine device
-    if args.device == "auto":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        device = torch.device(args.device)
-
+    device = get_device(args.device)
     logging.info(f"Using device: {device}")
 
     # Check checkpoint exists

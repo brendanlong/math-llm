@@ -12,19 +12,15 @@ import sys
 from pathlib import Path
 from typing import Sized, cast
 
-import colorlog
 import torch
-from safetensors.torch import load_file
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# Add parent directory to path to import src modules
-sys.path.append(str(Path(__file__).parent.parent))
-
-from src.config import find_config_in_checkpoint, load_config
+from src.config import find_config_in_checkpoint
 from src.data import create_dataloader
-from src.model import Model, create_model_from_config
-from src.tokenizer import VOCAB, tokenizer
+from src.model import Model
+from src.tokenizer import END_THINK_TOKEN_ID, THINK_TOKEN_ID, tokenizer
+from src.utils import get_device, load_model, setup_logging
 
 
 def remove_thinking_sections(text: str) -> str:
@@ -39,7 +35,6 @@ def remove_thinking_sections(text: str) -> str:
     Returns:
         Text with thinking sections removed
     """
-    # Remove thinking sections
     while True:
         first_think = text.find("<think>")
         if first_think == -1:
@@ -52,9 +47,7 @@ def remove_thinking_sections(text: str) -> str:
     return text
 
 
-def create_thinking_mask(
-    token_ids: torch.Tensor,
-) -> torch.Tensor:
+def create_thinking_mask(token_ids: torch.Tensor) -> torch.Tensor:
     """Create a mask that excludes tokens inside thinking sections.
 
     Handles <think>...</think> sections.
@@ -62,15 +55,10 @@ def create_thinking_mask(
 
     Args:
         token_ids: Tensor of token IDs (any shape)
-        tokenizer: Tokenizer instance to get special token IDs
 
     Returns:
         Boolean tensor with same shape, True for tokens to include in accuracy
     """
-    # Get token IDs for thinking
-    think_id = tokenizer.vocab["<think>"]
-    end_think_id = tokenizer.vocab["</think>"]
-
     mask = torch.ones_like(token_ids, dtype=torch.bool)
 
     # Handle batched input
@@ -81,83 +69,24 @@ def create_thinking_mask(
             # Find all thinking sections and mask them
             for pos in range(len(seq)):
                 # Check for thinking start
-                if seq[pos] == think_id:
+                if seq[pos] == THINK_TOKEN_ID:
                     # Find matching close tag
                     for end_pos in range(pos + 1, len(seq)):
-                        if seq[end_pos] == end_think_id:
+                        if seq[end_pos] == END_THINK_TOKEN_ID:
                             mask[batch_idx, pos : end_pos + 1] = False
                             break
     else:
         # Handle 1D tensor
         for pos in range(len(token_ids)):
             # Check for thinking start
-            if token_ids[pos] == think_id:
+            if token_ids[pos] == THINK_TOKEN_ID:
                 # Find matching close tag
                 for end_pos in range(pos + 1, len(token_ids)):
-                    if token_ids[end_pos] == end_think_id:
+                    if token_ids[end_pos] == END_THINK_TOKEN_ID:
                         mask[pos : end_pos + 1] = False
                         break
 
     return mask
-
-
-def setup_logging() -> None:
-    """Setup colored logging configuration."""
-    console_handler = colorlog.StreamHandler()
-    console_handler.setFormatter(
-        colorlog.ColoredFormatter(
-            "%(log_color)s%(asctime)s - %(levelname)-8s%(reset)s %(message)s",
-            datefmt="%H:%M:%S",
-            log_colors={
-                "DEBUG": "cyan",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "red,bg_white",
-            },
-        )
-    )
-
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(console_handler)
-
-
-def load_model(
-    checkpoint_path: Path,
-    config_path: Path,
-) -> Model:
-    """Load model from checkpoint.
-
-    Args:
-        checkpoint_path: Path to model checkpoint
-        config_path: Path to model configuration YAML file
-
-    Returns:
-        Loaded model
-    """
-    config = load_config(config_path)
-    model = create_model_from_config(config)
-
-    # Load checkpoint - handle different formats
-    if checkpoint_path.suffix == ".safetensors":
-        # Load safetensors format
-        state_dict = load_file(str(checkpoint_path))
-        model.load_state_dict(state_dict)
-    else:
-        # Load PyTorch format
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
-
-        # Handle different checkpoint formats
-        if "model_state_dict" in checkpoint:
-            model.load_state_dict(checkpoint["model_state_dict"])
-        elif isinstance(checkpoint, dict) and "state_dict" in checkpoint:
-            model.load_state_dict(checkpoint["state_dict"])
-        else:
-            # Assume checkpoint is the state dict directly
-            model.load_state_dict(checkpoint)
-
-    return model
 
 
 def compute_exact_match_accuracy(
@@ -171,7 +100,6 @@ def compute_exact_match_accuracy(
     Args:
         model: Trained model
         dataloader: DataLoader for evaluation data
-        tokenizer: Tokenizer instance
         device: Device to run evaluation on
         max_new_tokens: Maximum tokens to generate (default: 512)
 
@@ -208,7 +136,6 @@ def compute_exact_match_accuracy(
                         prompt_ids,
                         max_new_tokens=max_new_tokens,
                         temperature=0.1,  # Low temperature for deterministic output
-                        end_token_id=VOCAB["<end>"],
                     )
 
                     # Extract only the generated part
@@ -300,7 +227,6 @@ def evaluate_on_dataset(
     Args:
         model: Trained model
         data_path: Path to dataset JSON file
-        tokenizer: Tokenizer instance
         device: Device to run evaluation on
         batch_size: Batch size for evaluation
         max_length: Maximum sequence length
@@ -373,7 +299,7 @@ def main() -> None:
     parser.add_argument(
         "--max-length",
         type=int,
-        default=32,
+        default=128,
         help="Maximum sequence length",
     )
     parser.add_argument(
@@ -396,11 +322,7 @@ def main() -> None:
     setup_logging()
 
     # Determine device
-    if args.device == "auto":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        device = torch.device(args.device)
-
+    device = get_device(args.device)
     logging.info(f"Using device: {device}")
 
     # Find or use provided config

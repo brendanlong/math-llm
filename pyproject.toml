@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "math-llm"
 version = "0.1.0"
-description = "Add your description here"
+description = "A minimal transformer model for learning basic arithmetic operations with chain-of-thought reasoning"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -25,6 +29,15 @@ dev = [
     "tensorboard>=2.19.0",
     "tensorboard-plugin-profile>=2.20.0",
 ]
+
+[project.scripts]
+math-llm-train = "scripts.train:main"
+math-llm-evaluate = "scripts.evaluate:main"
+math-llm-generate-data = "scripts.generate_data:main"
+math-llm-interactive = "scripts.interactive:main"
+
+[tool.setuptools.packages.find]
+include = ["src*", "scripts*"]
 
 [tool.ruff.lint]
 extend-select = ["I"]

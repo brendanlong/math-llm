@@ -15,22 +15,16 @@ import argparse
 import json
 import logging
 import random
-import sys
 from pathlib import Path
 from typing import Sized, cast
 
-import colorlog
 import numpy as np
 import torch
+import wandb
 from torch.profiler import ProfilerActivity, profile, schedule
 from transformers.trainer import Trainer
 from transformers.trainer_utils import set_seed
 from transformers.training_args import TrainingArguments
-
-import wandb
-
-# Add parent directory to path to import src modules
-sys.path.append(str(Path(__file__).parent.parent))
 
 from src.config import load_config, save_config
 from src.data import ArithmeticDataset, load_splits
@@ -41,43 +35,7 @@ from src.training import (
     data_collator,
     setup_training_optimizations,
 )
-
-
-def setup_logging() -> None:
-    """Setup colored logging configuration."""
-    # Create logs directory if it doesn't exist
-    os.makedirs("logs", exist_ok=True)
-
-    # Setup colored console handler
-    console_handler = colorlog.StreamHandler()
-    console_handler.setFormatter(
-        colorlog.ColoredFormatter(
-            "%(log_color)s%(asctime)s - %(levelname)-8s%(reset)s %(message)s",
-            datefmt="%H:%M:%S",
-            log_colors={
-                "DEBUG": "cyan",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "red,bg_white",
-            },
-        )
-    )
-
-    # Setup file handler (no colors for file output)
-    file_handler = logging.FileHandler("logs/training.log")
-    file_handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s - %(levelname)-8s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
-
-    # Configure root logger
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
+from src.utils import setup_logging
 
 
 def set_random_seeds(seed: int = 42) -> None:
@@ -216,7 +174,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Setup
-    setup_logging()
+    setup_logging(include_file_handler=True)
     set_random_seeds(args.seed)
 
     # Create output directories

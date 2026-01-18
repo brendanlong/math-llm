@@ -67,9 +67,7 @@ class TestArithmeticModel:
         input_ids = torch.tensor([[3, 10, 5, 11]])  # "3+5="
 
         # Set temperature very low to make generation more deterministic
-        generated = model.generate(
-            input_ids, max_new_tokens=10, temperature=0.1, end_token_id=12
-        )
+        generated = model.generate(input_ids, max_new_tokens=10, temperature=0.1)
 
         # Check that sequence is longer than input
         assert generated.shape[1] > input_ids.shape[1]

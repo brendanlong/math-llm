@@ -4,7 +4,7 @@ import torch
 
 from src.config import ModelConfig
 from src.model import create_model_from_config
-from src.tokenizer import VOCAB, VOCAB_SIZE, tokenizer
+from src.tokenizer import VOCAB_SIZE, tokenizer
 
 # Test config matching the original small model
 SMALL_CONFIG = ModelConfig(
@@ -38,9 +38,7 @@ class TestModelIntegration:
             assert logits.shape == (1, len(tokens), VOCAB_SIZE)
 
             # Test generation
-            generated = model.generate(
-                input_ids, max_new_tokens=3, end_token_id=VOCAB["<end>"]
-            )
+            generated = model.generate(input_ids, max_new_tokens=3)
 
             # Should be decodable
             decoded = tokenizer.decode(generated[0].tolist())

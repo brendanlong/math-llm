@@ -1,9 +1,9 @@
 """Custom character-level tokenizer for arithmetic expressions with reasoning.
 
-This tokenizer handles a vocabulary of 16 tokens:
+This tokenizer handles a vocabulary of 17 tokens:
 - Digits: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
 - Operators: +, =
-- Special: <end>, <noop>
+- Special: <end>, <noop>, <begin>
 - Reasoning: <think>, </think>
 """
 
@@ -12,10 +12,12 @@ from typing import Literal
 
 from tokenizers import (
     Regex,
-    Tokenizer,
     decoders,
     models,
     pre_tokenizers,
+)
+from tokenizers import (
+    Tokenizer as HFTokenizer,
 )
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
@@ -65,21 +67,34 @@ TOKEN_PATTERN = r"<begin>|</think>|<think>|<noop>|<end>|[0-9+=]"
 
 # Constants derived from vocabulary
 VOCAB_SIZE = len(VOCAB)
+END_TOKEN_ID = VOCAB["<end>"]
+THINK_TOKEN_ID = VOCAB["<think>"]
+END_THINK_TOKEN_ID = VOCAB["</think>"]
+EQUALS_TOKEN_ID = VOCAB["="]
 
-tokenizer = Tokenizer(models.WordLevel(vocab=VOCAB, unk_token=None))
-tokenizer.pre_tokenizer = pre_tokenizers.Split(
-    pattern=Regex(TOKEN_PATTERN), behavior="isolated"
-)  # type: ignore
-tokenizer.decoder = decoders.Fuse()  # type: ignore
 
-end_token_id = VOCAB["<end>"]
-with tempfile.NamedTemporaryFile() as f:
-    tokenizer.save(f.name)
+def _create_tokenizer() -> PreTrainedTokenizerFast:
+    """Create and configure the tokenizer.
 
-    tokenizer = PreTrainedTokenizerFast(
-        tokenizer_file=f.name,
-        unk_token=None,
-        pad_token="<end>",
-        eos_token="<end>",
-        clean_up_tokenization_spaces=False,
-    )
+    Returns:
+        Configured PreTrainedTokenizerFast instance
+    """
+    base_tokenizer = HFTokenizer(models.WordLevel(vocab=VOCAB, unk_token=None))
+    base_tokenizer.pre_tokenizer = pre_tokenizers.Split(
+        pattern=Regex(TOKEN_PATTERN), behavior="isolated"
+    )  # type: ignore
+    base_tokenizer.decoder = decoders.Fuse()  # type: ignore
+
+    with tempfile.NamedTemporaryFile(suffix=".json") as f:
+        base_tokenizer.save(f.name)
+        return PreTrainedTokenizerFast(
+            tokenizer_file=f.name,
+            unk_token=None,
+            pad_token="<end>",
+            eos_token="<end>",
+            clean_up_tokenization_spaces=False,
+        )
+
+
+# Create the tokenizer instance
+tokenizer = _create_tokenizer()
