@@ -27,6 +27,16 @@ class ModelConfig(BaseModel):
         ge=0.0, le=1.0, default=0.1, description="Dropout probability"
     )
 
+    # Attention variants
+    positional_encoding: Literal["learned", "pope"] = Field(
+        default="learned",
+        description="Positional encoding type: learned embeddings or PoPE (polar)",
+    )
+    softmax_variant: Literal["standard", "softmax1"] = Field(
+        default="standard",
+        description="Softmax variant: standard or softmax1 (+1 in denominator)",
+    )
+
     # Universal transformer specific
     n_loops: Optional[int] = Field(
         default=None,

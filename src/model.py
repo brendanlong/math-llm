@@ -17,6 +17,126 @@ from .tokenizer import VOCAB_SIZE
 MAX_SEQUENCE_LENGTH = 1024
 
 
+def softmax1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """Softmax with +1 in denominator, allowing attention heads to output nothing.
+
+    Formula: softmax1(x)_i = exp(x_i) / (1 + Σ_j exp(x_j))
+
+    This modification adds an implicit "zero" option that attention heads can use
+    when they have no meaningful information to contribute.
+
+    Args:
+        x: Input tensor
+        dim: Dimension to apply softmax over
+
+    Returns:
+        Tensor with same shape as input, values sum to less than 1
+    """
+    exp_x = torch.exp(x - x.max(dim=dim, keepdim=True).values)
+    return exp_x / (1.0 + exp_x.sum(dim=dim, keepdim=True))
+
+
+class PoPE(nn.Module):
+    """Polar Positional Encoding (PoPE).
+
+    PoPE separates "what" (content) from "where" (position) in attention by using
+    polar coordinates. Magnitudes encode content information via softplus activation,
+    while phases encode positional information.
+
+    Attention score: Σ μ_q * μ_k * cos((s - t) * θ + δ)
+
+    Where:
+    - μ = softplus(projection) are content-based magnitudes
+    - θ are frequency components (like RoPE but doubled)
+    - δ are learnable phase biases
+    """
+
+    def __init__(self, d_model: int, n_heads: int, base: float = 10000.0):
+        """Initialize PoPE.
+
+        Args:
+            d_model: Model dimension (must equal n_heads * head_dim)
+            n_heads: Number of attention heads
+            base: Base for frequency computation (like RoPE theta)
+        """
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+
+        # Compute frequencies for each dimension
+        # Unlike RoPE which uses d/2 frequencies, PoPE uses d frequencies
+        freqs = 1.0 / (base ** (torch.arange(0, self.head_dim).float() / self.head_dim))
+        self.register_buffer("freqs", freqs)
+
+        # Learnable phase biases δ, initialized uniformly in [-2π, 0]
+        # This allows the model to tune optimal relative offsets
+        self.phase_bias = nn.Parameter(
+            torch.empty(n_heads, self.head_dim).uniform_(-2 * math.pi, 0)
+        )
+
+    def forward(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        positions: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Apply PoPE transformation to queries and keys.
+
+        Args:
+            q: Query tensor of shape (batch, n_heads, seq_len, head_dim)
+            k: Key tensor of shape (batch, n_heads, seq_len, head_dim)
+            positions: Position indices of shape (seq_len,)
+
+        Returns:
+            Tuple of (transformed_q, transformed_k) ready for attention
+        """
+        # Compute magnitudes via softplus (ensures non-negative)
+        # Shape: (batch, n_heads, seq_len, head_dim)
+        mu_q = F.softplus(q)
+        mu_k = F.softplus(k)
+
+        # Get frequencies buffer as tensor
+        freqs = cast(torch.Tensor, self.freqs)
+
+        # Compute position-based phases: position * frequency
+        # Shape: (seq_len, head_dim)
+        pos_phases = positions.unsqueeze(-1).float() * freqs.unsqueeze(0)
+
+        # Add learnable phase bias
+        # Shape: (1, n_heads, seq_len, head_dim)
+        phases = pos_phases.unsqueeze(0).unsqueeze(0) + self.phase_bias.unsqueeze(
+            0
+        ).unsqueeze(2)
+
+        # Convert polar to Cartesian coordinates for efficient computation:
+        # q_cart = μ_q * (cos(φ), sin(φ))
+        # k_cart = μ_k * (cos(φ), sin(φ))
+        # Then real part of q_cart^H @ k_cart gives the attention score
+
+        cos_phases = torch.cos(phases)
+        sin_phases = torch.sin(phases)
+
+        # Real and imaginary parts
+        q_real = mu_q * cos_phases
+        q_imag = mu_q * sin_phases
+        k_real = mu_k * cos_phases
+        k_imag = mu_k * sin_phases
+
+        # Pack as interleaved real/imag for matrix multiplication
+        # We'll compute: sum(q_real * k_real + q_imag * k_imag) per head
+        # which equals: sum(μ_q * μ_k * cos(phase_diff))
+        # This is the real part of the complex dot product
+
+        # For efficient computation with standard attention, we need to
+        # return modified Q and K that when multiplied give the PoPE score.
+        # We concatenate real and imaginary parts and scale appropriately.
+        q_pope = torch.cat([q_real, q_imag], dim=-1)  # (batch, heads, seq, 2*head_dim)
+        k_pope = torch.cat([k_real, k_imag], dim=-1)  # (batch, heads, seq, 2*head_dim)
+
+        return q_pope, k_pope
+
+
 def compute_loss(
     logits: torch.Tensor,
     labels: torch.Tensor,
@@ -48,9 +168,21 @@ def compute_loss(
 
 
 class TransformerBlock(nn.Module):
-    """Single transformer decoder block with masked self-attention."""
+    """Single transformer decoder block with masked self-attention.
 
-    def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float = 0.1):
+    Supports configurable positional encoding (learned or PoPE) and
+    softmax variants (standard or softmax1).
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        d_ff: int,
+        dropout: float = 0.1,
+        positional_encoding: str = "learned",
+        softmax_variant: str = "standard",
+    ):
         """Initialize transformer block.
 
         Args:
@@ -58,18 +190,26 @@ class TransformerBlock(nn.Module):
             n_heads: Number of attention heads
             d_ff: Feed-forward dimension
             dropout: Dropout probability
+            positional_encoding: "learned" or "pope"
+            softmax_variant: "standard" or "softmax1"
         """
         super().__init__()
 
         self.n_heads = n_heads
         self.d_model = d_model
         self.head_dim = d_model // n_heads
+        self.positional_encoding = positional_encoding
+        self.softmax_variant = softmax_variant
 
         # Use separate linear layers for Q, K, V to have more control
         self.q_proj = nn.Linear(d_model, d_model)
         self.k_proj = nn.Linear(d_model, d_model)
         self.v_proj = nn.Linear(d_model, d_model)
         self.out_proj = nn.Linear(d_model, d_model)
+
+        # PoPE for polar positional encoding
+        if positional_encoding == "pope":
+            self.pope = PoPE(d_model, n_heads)
 
         self.feed_forward = nn.Sequential(
             nn.Linear(d_model, d_ff),
@@ -82,11 +222,62 @@ class TransformerBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.attn_dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Precompute scaling factor
+        self._scale = 1.0 / math.sqrt(self.head_dim)
+
+    def _manual_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        use_softmax1: bool,
+    ) -> torch.Tensor:
+        """Manual attention implementation supporting softmax variants.
+
+        Args:
+            q: Query tensor (batch, n_heads, seq_len, head_dim or 2*head_dim for PoPE)
+            k: Key tensor (batch, n_heads, seq_len, head_dim or 2*head_dim for PoPE)
+            v: Value tensor (batch, n_heads, seq_len, head_dim)
+            use_softmax1: Whether to use softmax1 instead of standard softmax
+
+        Returns:
+            Attention output (batch, n_heads, seq_len, head_dim)
+        """
+        seq_len = q.shape[2]
+
+        # Compute attention scores
+        # For PoPE, q and k are 2*head_dim, so scaling should be adjusted
+        scale = 1.0 / math.sqrt(q.shape[-1])
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) * scale
+
+        # Apply causal mask
+        causal_mask = torch.triu(
+            torch.ones(seq_len, seq_len, device=q.device, dtype=torch.bool),
+            diagonal=1,
+        )
+        attn_scores = attn_scores.masked_fill(causal_mask, float("-inf"))
+
+        # Apply softmax variant
+        if use_softmax1:
+            attn_weights = softmax1(attn_scores, dim=-1)
+        else:
+            attn_weights = F.softmax(attn_scores, dim=-1)
+
+        # Apply dropout
+        if self.training:
+            attn_weights = self.attn_dropout(attn_weights)
+
+        # Compute weighted sum
+        return torch.matmul(attn_weights, v)
+
+    def forward(
+        self, x: torch.Tensor, positions: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """Forward pass through transformer block.
 
         Args:
             x: Input tensor of shape (batch_size, seq_len, d_model)
+            positions: Position indices of shape (seq_len,), required for PoPE
 
         Returns:
             Output tensor of same shape as input
@@ -110,14 +301,30 @@ class TransformerBlock(nn.Module):
             .transpose(1, 2)
         )
 
-        # Use optimized scaled dot-product attention with Flash Attention
-        attn_out = F.scaled_dot_product_attention(
-            query=q,
-            key=k,
-            value=v,
-            dropout_p=self.attn_dropout.p if self.training else 0.0,
-            is_causal=True,
+        # Apply PoPE if configured
+        if self.positional_encoding == "pope":
+            if positions is None:
+                positions = torch.arange(seq_len, device=x.device)
+            q, k = self.pope(q, k, positions)
+
+        # Choose attention implementation
+        use_manual = (
+            self.softmax_variant == "softmax1" or self.positional_encoding == "pope"
         )
+
+        if use_manual:
+            attn_out = self._manual_attention(
+                q, k, v, use_softmax1=(self.softmax_variant == "softmax1")
+            )
+        else:
+            # Use optimized scaled dot-product attention with Flash Attention
+            attn_out = F.scaled_dot_product_attention(
+                query=q,
+                key=k,
+                value=v,
+                dropout_p=self.attn_dropout.p if self.training else 0.0,
+                is_causal=True,
+            )
 
         # Reshape and project output
         attn_out = attn_out.transpose(1, 2).reshape(batch_size, seq_len, self.d_model)
@@ -148,6 +355,8 @@ class ArithmeticModel(nn.Module):
         d_ff: int = 1024,
         max_seq_len: int = MAX_SEQUENCE_LENGTH,
         dropout: float = 0.1,
+        positional_encoding: str = "learned",
+        softmax_variant: str = "standard",
     ):
         """Initialize the arithmetic model.
 
@@ -159,21 +368,37 @@ class ArithmeticModel(nn.Module):
             d_ff: Feed-forward dimension
             max_seq_len: Maximum sequence length
             dropout: Dropout probability
+            positional_encoding: "learned" for learned embeddings, "pope" for PoPE
+            softmax_variant: "standard" or "softmax1" (+1 in denominator)
         """
         super().__init__()
 
         self.d_model = d_model
         self.max_seq_len = max_seq_len
         self.n_heads = n_heads
+        self.positional_encoding = positional_encoding
+        self.softmax_variant = softmax_variant
         self._embed_scale = math.sqrt(d_model)
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        # Only use learned position embeddings when not using PoPE
+        if positional_encoding == "learned":
+            self.position_embedding = nn.Embedding(max_seq_len, d_model)
 
         # Transformer layers
         self.layers = nn.ModuleList(
-            [TransformerBlock(d_model, n_heads, d_ff, dropout) for _ in range(n_layers)]
+            [
+                TransformerBlock(
+                    d_model,
+                    n_heads,
+                    d_ff,
+                    dropout,
+                    positional_encoding=positional_encoding,
+                    softmax_variant=softmax_variant,
+                )
+                for _ in range(n_layers)
+            ]
         )
 
         # Output projection
@@ -220,13 +445,16 @@ class ArithmeticModel(nn.Module):
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
         x.mul_(self._embed_scale)
 
-        # Add positional embeddings
+        # Position indices for PoPE or learned embeddings
         positions = torch.arange(seq_len, device=input_ids.device)
-        x = x + self.position_embedding(positions)
 
-        # Apply transformer layers
+        # Add learned positional embeddings only when not using PoPE
+        if self.positional_encoding == "learned":
+            x = x + self.position_embedding(positions)
+
+        # Apply transformer layers (pass positions for PoPE)
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, positions)
 
         # Final layer norm and projection
         x = self.ln_f(x)
@@ -329,6 +557,8 @@ class UniversalTransformerModel(nn.Module):
         max_seq_len: int = MAX_SEQUENCE_LENGTH,
         dropout: float = 0.1,
         use_loop_embeddings: bool = True,
+        positional_encoding: str = "learned",
+        softmax_variant: str = "standard",
     ):
         """Initialize the Universal Transformer model.
 
@@ -342,6 +572,8 @@ class UniversalTransformerModel(nn.Module):
             max_seq_len: Maximum sequence length
             dropout: Dropout probability
             use_loop_embeddings: Whether to add learnable loop position embeddings
+            positional_encoding: "learned" for learned embeddings, "pope" for PoPE
+            softmax_variant: "standard" or "softmax1" (+1 in denominator)
         """
         super().__init__()
 
@@ -351,11 +583,15 @@ class UniversalTransformerModel(nn.Module):
         self.n_layers = n_layers
         self.n_heads = n_heads
         self.use_loop_embeddings = use_loop_embeddings
+        self.positional_encoding = positional_encoding
+        self.softmax_variant = softmax_variant
         self._embed_scale = math.sqrt(d_model)
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        # Only use learned position embeddings when not using PoPE
+        if positional_encoding == "learned":
+            self.position_embedding = nn.Embedding(max_seq_len, d_model)
 
         # Optional loop embeddings to help model distinguish iterations
         if use_loop_embeddings:
@@ -363,7 +599,17 @@ class UniversalTransformerModel(nn.Module):
 
         # Transformer layers (shared across loops)
         self.layers = nn.ModuleList(
-            [TransformerBlock(d_model, n_heads, d_ff, dropout) for _ in range(n_layers)]
+            [
+                TransformerBlock(
+                    d_model,
+                    n_heads,
+                    d_ff,
+                    dropout,
+                    positional_encoding=positional_encoding,
+                    softmax_variant=softmax_variant,
+                )
+                for _ in range(n_layers)
+            ]
         )
 
         # Output projection
@@ -410,9 +656,12 @@ class UniversalTransformerModel(nn.Module):
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
         x.mul_(self._embed_scale)
 
-        # Add positional embeddings
+        # Position indices for PoPE or learned embeddings
         positions = torch.arange(seq_len, device=input_ids.device)
-        x = x + self.position_embedding(positions)
+
+        # Add learned positional embeddings only when not using PoPE
+        if self.positional_encoding == "learned":
+            x = x + self.position_embedding(positions)
 
         # Pre-fetch all loop embeddings for efficiency
         loop_embs = self.loop_embeddings.weight if self.use_loop_embeddings else None
@@ -423,9 +672,9 @@ class UniversalTransformerModel(nn.Module):
             if loop_embs is not None:
                 x = x + loop_embs[loop_idx]
 
-            # Apply all layers in this loop iteration
+            # Apply all layers in this loop iteration (pass positions for PoPE)
             for layer in self.layers:
-                x = layer(x)
+                x = layer(x, positions)
 
         # Final layer norm and projection
         x = self.ln_f(x)
@@ -514,7 +763,14 @@ class FeedbackTransformerBlock(nn.Module):
     pre-computed K/V from the memory and only computes Q from its input.
     """
 
-    def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float = 0.1):
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        d_ff: int,
+        dropout: float = 0.1,
+        softmax_variant: str = "standard",
+    ):
         """Initialize feedback transformer block.
 
         Args:
@@ -522,12 +778,14 @@ class FeedbackTransformerBlock(nn.Module):
             n_heads: Number of attention heads
             d_ff: Feed-forward dimension
             dropout: Dropout probability
+            softmax_variant: "standard" or "softmax1"
         """
         super().__init__()
 
         self.n_heads = n_heads
         self.d_model = d_model
         self.head_dim = d_model // n_heads
+        self.softmax_variant = softmax_variant
 
         # Only Q projection is per-layer; K/V are shared and passed in
         self.q_proj = nn.Linear(d_model, d_model)
@@ -543,6 +801,36 @@ class FeedbackTransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
         self.attn_dropout = nn.Dropout(dropout)
+
+        self._scale = 1.0 / math.sqrt(self.head_dim)
+
+    def _manual_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+    ) -> torch.Tensor:
+        """Manual attention for softmax1 variant.
+
+        Args:
+            q: Query tensor (batch, n_heads, 1, head_dim)
+            k: Key tensor (batch, n_heads, mem_len, head_dim)
+            v: Value tensor (batch, n_heads, mem_len, head_dim)
+
+        Returns:
+            Attention output (batch, n_heads, 1, head_dim)
+        """
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self._scale
+
+        if self.softmax_variant == "softmax1":
+            attn_weights = softmax1(attn_scores, dim=-1)
+        else:
+            attn_weights = F.softmax(attn_scores, dim=-1)
+
+        if self.training:
+            attn_weights = self.attn_dropout(attn_weights)
+
+        return torch.matmul(attn_weights, v)
 
     def forward(
         self,
@@ -578,14 +866,17 @@ class FeedbackTransformerBlock(nn.Module):
             batch_size, mem_len, self.n_heads, self.head_dim
         ).transpose(1, 2)  # (batch_size, n_heads, mem_len, head_dim)
 
-        # Scaled dot-product attention (no mask needed - only attending to past memory)
-        attn_out = F.scaled_dot_product_attention(
-            query=q,
-            key=k,
-            value=v,
-            dropout_p=self.attn_dropout.p if self.training else 0.0,
-            is_causal=False,
-        )
+        if self.softmax_variant == "softmax1":
+            attn_out = self._manual_attention(q, k, v)
+        else:
+            # Scaled dot-product attention (no mask needed - only attending to past memory)
+            attn_out = F.scaled_dot_product_attention(
+                query=q,
+                key=k,
+                value=v,
+                dropout_p=self.attn_dropout.p if self.training else 0.0,
+                is_causal=False,
+            )
 
         # Reshape and project output
         attn_out = attn_out.transpose(1, 2).reshape(batch_size, self.d_model)
@@ -615,6 +906,9 @@ class FeedbackTransformerModel(nn.Module):
     - All layers attend to memory from previous timesteps
     - Shared K/V projections across all layers
     - Requires sequential processing during training
+
+    Note: PoPE is not supported with feedback architecture due to the
+    memory-based attention pattern. Use learned positional embeddings instead.
     """
 
     # Class attribute to identify architecture type
@@ -629,6 +923,8 @@ class FeedbackTransformerModel(nn.Module):
         d_ff: int = 1024,
         max_seq_len: int = MAX_SEQUENCE_LENGTH,
         dropout: float = 0.1,
+        positional_encoding: str = "learned",
+        softmax_variant: str = "standard",
     ):
         """Initialize the Feedback Transformer model.
 
@@ -640,13 +936,26 @@ class FeedbackTransformerModel(nn.Module):
             d_ff: Feed-forward dimension
             max_seq_len: Maximum sequence length
             dropout: Dropout probability
+            positional_encoding: Only "learned" is supported for feedback architecture
+            softmax_variant: "standard" or "softmax1" (+1 in denominator)
+
+        Raises:
+            ValueError: If positional_encoding is "pope" (not supported)
         """
         super().__init__()
+
+        if positional_encoding == "pope":
+            raise ValueError(
+                "PoPE is not supported with feedback architecture. "
+                "Use positional_encoding='learned' instead."
+            )
 
         self.d_model = d_model
         self.max_seq_len = max_seq_len
         self.n_layers = n_layers
         self.n_heads = n_heads
+        self.positional_encoding = positional_encoding
+        self.softmax_variant = softmax_variant
         self._embed_scale = math.sqrt(d_model)
 
         # Embedding layers
@@ -664,7 +973,9 @@ class FeedbackTransformerModel(nn.Module):
         # Transformer layers (each has own Q projection)
         self.layers = nn.ModuleList(
             [
-                FeedbackTransformerBlock(d_model, n_heads, d_ff, dropout)
+                FeedbackTransformerBlock(
+                    d_model, n_heads, d_ff, dropout, softmax_variant=softmax_variant
+                )
                 for _ in range(n_layers)
             ]
         )
@@ -858,6 +1169,8 @@ def create_model_from_config(config: ModelConfig) -> Model:
             n_heads=config.n_heads,
             d_ff=config.d_ff,
             dropout=config.dropout,
+            positional_encoding=config.positional_encoding,
+            softmax_variant=config.softmax_variant,
         )
     elif config.architecture == "universal":
         if config.n_loops is None:
@@ -870,6 +1183,8 @@ def create_model_from_config(config: ModelConfig) -> Model:
             d_ff=config.d_ff,
             dropout=config.dropout,
             use_loop_embeddings=config.use_loop_embeddings,
+            positional_encoding=config.positional_encoding,
+            softmax_variant=config.softmax_variant,
         )
     elif config.architecture == "feedback":
         return FeedbackTransformerModel(
@@ -878,6 +1193,8 @@ def create_model_from_config(config: ModelConfig) -> Model:
             n_heads=config.n_heads,
             d_ff=config.d_ff,
             dropout=config.dropout,
+            positional_encoding=config.positional_encoding,
+            softmax_variant=config.softmax_variant,
         )
     else:
         raise ValueError(f"Unknown architecture: {config.architecture}")
