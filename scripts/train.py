@@ -32,6 +32,7 @@ from src.model import create_model_from_config
 from src.optimizers import create_optimizer
 from src.tokenizer import VOCAB_SIZE
 from src.training import (
+    ActivationStatsCallback,
     compute_metrics,
     data_collator,
     setup_training_optimizations,
@@ -184,6 +185,11 @@ def main() -> None:
         default="adamw",
         help="Optimizer to use: adamw (default), adopt, or muon",
     )
+    parser.add_argument(
+        "--track-activation-stats",
+        action="store_true",
+        help="Track activation statistics (kurtosis, outliers) during training and save at end",
+    )
 
     args = parser.parse_args()
 
@@ -334,6 +340,18 @@ def main() -> None:
         )
         logger.info(f"Using {args.optimizer.upper()} optimizer")
 
+    # Create callbacks
+    callbacks = []
+    if args.track_activation_stats:
+        activation_callback = ActivationStatsCallback(
+            eval_dataloader=val_loader,
+            use_softmax1=(model_config.softmax_variant == "softmax1"),
+            compute_every_n_evals=1,
+            max_batches=10,  # Limit batches for faster computation
+        )
+        callbacks.append(activation_callback)
+        logger.info("Activation stats tracking enabled")
+
     # Create trainer
     trainer = Trainer(
         model=model,
@@ -343,6 +361,7 @@ def main() -> None:
         data_collator=data_collator,
         compute_metrics=compute_metrics,
         optimizers=(optimizer, None) if optimizer else (None, None),
+        callbacks=callbacks if callbacks else None,
     )
 
     # Save model configuration to output directory

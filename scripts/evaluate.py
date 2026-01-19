@@ -10,13 +10,18 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Sized, cast
+from typing import Optional, Sized, cast
 
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.config import find_config_in_checkpoint
+from src.activation_stats import (
+    ActivationStatsCollector,
+    ActivationStatsSummary,
+    format_stats_summary,
+)
+from src.config import ModelConfig, find_config_in_checkpoint, load_config
 from src.data import create_dataloader
 from src.model import Model
 from src.tokenizer import END_THINK_TOKEN_ID, THINK_TOKEN_ID, tokenizer
@@ -215,6 +220,57 @@ def compute_token_accuracy(
     return total_correct / total_tokens if total_tokens > 0 else 0.0
 
 
+def compute_activation_stats(
+    model: Model,
+    dataloader: DataLoader[dict[str, torch.Tensor]],
+    device: torch.device,
+    model_config: ModelConfig,
+    max_batches: Optional[int] = None,
+) -> ActivationStatsSummary:
+    """Compute activation statistics on evaluation data.
+
+    Args:
+        model: Trained model
+        dataloader: DataLoader for evaluation data
+        device: Device to run evaluation on
+        model_config: Model configuration for detecting softmax1 usage
+        max_batches: Maximum number of batches to process (None for all)
+
+    Returns:
+        ActivationStatsSummary with statistics across all layers
+    """
+    model.eval()
+    use_softmax1 = model_config.softmax_variant == "softmax1"
+
+    collector = ActivationStatsCollector(model, use_softmax1=use_softmax1)
+
+    with collector:
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(
+                tqdm(dataloader, desc="Computing activation stats")
+            ):
+                if max_batches is not None and batch_idx >= max_batches:
+                    break
+
+                input_ids = batch["input_ids"].to(device)
+                labels = batch["labels"].to(device)
+
+                # Forward pass with attention outputs
+                outputs = model(
+                    input_ids,
+                    labels=labels,
+                    output_attentions=True,
+                    output_attention_scores=True,
+                )
+
+                # Process attention outputs
+                attention_weights = outputs.get("attentions")
+                attention_scores = outputs.get("attention_scores")
+                collector.process_attention_outputs(attention_weights, attention_scores)
+
+    return collector.compute_statistics()
+
+
 def evaluate_on_dataset(
     model: Model,
     data_path: Path,
@@ -308,6 +364,19 @@ def main() -> None:
         help="Path to save evaluation results JSON",
     )
 
+    # Activation stats arguments
+    parser.add_argument(
+        "--activation-stats",
+        action="store_true",
+        help="Compute and save activation statistics (kurtosis, outliers, attention entropy)",
+    )
+    parser.add_argument(
+        "--activation-stats-batches",
+        type=int,
+        default=None,
+        help="Max batches for activation stats (default: all batches)",
+    )
+
     # System arguments
     parser.add_argument(
         "--device",
@@ -337,6 +406,9 @@ def main() -> None:
             )
             sys.exit(1)
         logging.info(f"Auto-detected config: {config_path}")
+
+    # Load model config (needed for activation stats)
+    model_config = load_config(config_path)
 
     # Load model
     logging.info(f"Loading model from {args.checkpoint} with config {config_path}")
@@ -370,6 +442,41 @@ def main() -> None:
         with args.output_file.open("w") as f:
             json.dump(results, f, indent=2)
         logging.info(f"Results saved to {args.output_file}")
+
+    # Compute activation stats if requested
+    if args.activation_stats:
+        logging.info("Computing activation statistics...")
+
+        # Create dataloader for activation stats
+        dataloader = create_dataloader(
+            data_path=data_path,
+            batch_size=args.batch_size,
+            shuffle=False,
+            max_length=args.max_length,
+            num_workers=0,
+        )
+
+        activation_stats = compute_activation_stats(
+            model=model,
+            dataloader=dataloader,
+            device=device,
+            model_config=model_config,
+            max_batches=args.activation_stats_batches,
+        )
+
+        # Print summary
+        logging.info("\n" + format_stats_summary(activation_stats))
+
+        # Determine output path (auto-save to checkpoint directory)
+        checkpoint_path = Path(args.checkpoint)
+        if checkpoint_path.is_file():
+            checkpoint_dir = checkpoint_path.parent
+        else:
+            checkpoint_dir = checkpoint_path
+
+        stats_path = checkpoint_dir / "activation_stats.json"
+        activation_stats.save(stats_path)
+        logging.info(f"Activation stats saved to {stats_path}")
 
 
 if __name__ == "__main__":

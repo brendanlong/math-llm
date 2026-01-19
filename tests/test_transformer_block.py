@@ -20,7 +20,7 @@ class TestTransformerBlock:
         block = TransformerBlock(d_model=256, n_heads=4, d_ff=1024)
         x = torch.randn(2, 10, 256)  # (batch_size, seq_len, d_model)
 
-        output, _attn = block(x)
+        output, _attn, _scores = block(x)
         assert output.shape == x.shape
 
     def test_forward_causal(self):
@@ -28,5 +28,5 @@ class TestTransformerBlock:
         block = TransformerBlock(d_model=256, n_heads=4, d_ff=1024)
         x = torch.randn(2, 10, 256)
 
-        output, _attn = block(x)
+        output, _attn, _scores = block(x)
         assert output.shape == x.shape

@@ -242,7 +242,7 @@ class TestTransformerBlockVariants:
             d_model=64, n_heads=4, d_ff=128, softmax_variant="standard"
         )
         x = torch.randn(2, 8, 64)
-        out, attn = block(x)
+        out, attn, _scores = block(x)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
         assert attn is None  # No attention when output_attentions=False
@@ -253,7 +253,7 @@ class TestTransformerBlockVariants:
             d_model=64, n_heads=4, d_ff=128, softmax_variant="softmax1"
         )
         x = torch.randn(2, 8, 64)
-        out, attn = block(x)
+        out, attn, _scores = block(x)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
         assert attn is None
@@ -265,7 +265,7 @@ class TestTransformerBlockVariants:
         )
         x = torch.randn(2, 8, 64)
         positions = torch.arange(8)
-        out, attn = block(x, positions)
+        out, attn, _scores = block(x, positions)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
         assert attn is None
@@ -281,7 +281,7 @@ class TestTransformerBlockVariants:
         )
         x = torch.randn(2, 8, 64)
         positions = torch.arange(8)
-        out, attn = block(x, positions)
+        out, attn, _scores = block(x, positions)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
         assert attn is None
@@ -293,7 +293,7 @@ class TestTransformerBlockVariants:
         )
         x = torch.randn(2, 8, 64)
         positions = torch.arange(8)
-        out, attn = block(x, positions)
+        out, attn, _scores = block(x, positions)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
         assert attn is None
@@ -309,7 +309,7 @@ class TestTransformerBlockVariants:
         )
         x = torch.randn(2, 8, 64)
         positions = torch.arange(8)
-        out, attn = block(x, positions)
+        out, attn, _scores = block(x, positions)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
         assert attn is None
@@ -320,7 +320,7 @@ class TestTransformerBlockVariants:
             d_model=64, n_heads=4, d_ff=128, softmax_variant="standard"
         )
         x = torch.randn(2, 8, 64)
-        out, attn = block(x, output_attentions=True)
+        out, attn, _scores = block(x, output_attentions=True)
         assert out.shape == x.shape
         assert attn is not None
         # Attention shape: (batch, n_heads, seq_len, seq_len)
