@@ -242,9 +242,10 @@ class TestTransformerBlockVariants:
             d_model=64, n_heads=4, d_ff=128, softmax_variant="standard"
         )
         x = torch.randn(2, 8, 64)
-        out = block(x)
+        out, attn = block(x)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
+        assert attn is None  # No attention when output_attentions=False
 
     def test_softmax1_variant(self) -> None:
         """Block with softmax1 should work."""
@@ -252,9 +253,10 @@ class TestTransformerBlockVariants:
             d_model=64, n_heads=4, d_ff=128, softmax_variant="softmax1"
         )
         x = torch.randn(2, 8, 64)
-        out = block(x)
+        out, attn = block(x)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
+        assert attn is None
 
     def test_pope_variant(self) -> None:
         """Block with PoPE positional encoding should work."""
@@ -263,9 +265,10 @@ class TestTransformerBlockVariants:
         )
         x = torch.randn(2, 8, 64)
         positions = torch.arange(8)
-        out = block(x, positions)
+        out, attn = block(x, positions)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
+        assert attn is None
 
     def test_pope_with_softmax1(self) -> None:
         """Block with both PoPE and softmax1 should work."""
@@ -278,9 +281,10 @@ class TestTransformerBlockVariants:
         )
         x = torch.randn(2, 8, 64)
         positions = torch.arange(8)
-        out = block(x, positions)
+        out, attn = block(x, positions)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
+        assert attn is None
 
     def test_rope_variant(self) -> None:
         """Block with RoPE positional encoding should work."""
@@ -289,9 +293,10 @@ class TestTransformerBlockVariants:
         )
         x = torch.randn(2, 8, 64)
         positions = torch.arange(8)
-        out = block(x, positions)
+        out, attn = block(x, positions)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
+        assert attn is None
 
     def test_rope_with_softmax1(self) -> None:
         """Block with both RoPE and softmax1 should work."""
@@ -304,9 +309,26 @@ class TestTransformerBlockVariants:
         )
         x = torch.randn(2, 8, 64)
         positions = torch.arange(8)
-        out = block(x, positions)
+        out, attn = block(x, positions)
         assert out.shape == x.shape
         assert torch.isfinite(out).all()
+        assert attn is None
+
+    def test_output_attentions(self) -> None:
+        """Block should return attention weights when output_attentions=True."""
+        block = TransformerBlock(
+            d_model=64, n_heads=4, d_ff=128, softmax_variant="standard"
+        )
+        x = torch.randn(2, 8, 64)
+        out, attn = block(x, output_attentions=True)
+        assert out.shape == x.shape
+        assert attn is not None
+        # Attention shape: (batch, n_heads, seq_len, seq_len)
+        assert attn.shape == (2, 4, 8, 8)
+        assert torch.isfinite(attn).all()
+        # Attention should be causal (upper triangle should be 0)
+        # Check that attention weights sum to <= 1 per row (due to causal mask)
+        assert (attn.sum(dim=-1) <= 1.0 + 1e-5).all()
 
 
 class TestModelVariants:
@@ -427,6 +449,79 @@ class TestModelVariants:
         out = model(input_ids)
         assert isinstance(out, torch.Tensor)
         assert out.shape == (2, 8, VOCAB_SIZE)
+
+
+class TestOutputAttentions:
+    """Tests for attention weight output functionality."""
+
+    def test_arithmetic_model_output_attentions(self) -> None:
+        """ArithmeticModel should return attention weights when requested."""
+        model = ArithmeticModel(
+            d_model=64,
+            n_layers=2,
+            n_heads=4,
+            d_ff=128,
+        )
+        input_ids = torch.randint(0, 10, (2, 8))
+        labels = torch.randint(0, 10, (2, 8))
+
+        # Without output_attentions
+        result = model(input_ids, labels=labels)
+        assert isinstance(result, dict)
+        assert "attentions" not in result
+
+        # With output_attentions
+        result = model(input_ids, labels=labels, output_attentions=True)
+        assert isinstance(result, dict)
+        assert "attentions" in result
+        attentions = result["attentions"]
+        assert isinstance(attentions, tuple)
+        assert len(attentions) == 2  # n_layers=2
+
+        # Check attention shape: (batch, n_heads, seq_len, seq_len)
+        for attn in attentions:
+            assert attn.shape == (2, 4, 8, 8)
+            assert torch.isfinite(attn).all()
+
+    def test_universal_model_output_attentions(self) -> None:
+        """UniversalTransformerModel should return attention from all loop iterations."""
+        model = UniversalTransformerModel(
+            d_model=64,
+            n_layers=1,
+            n_loops=3,
+            n_heads=4,
+            d_ff=128,
+        )
+        input_ids = torch.randint(0, 10, (2, 8))
+        labels = torch.randint(0, 10, (2, 8))
+
+        result = model(input_ids, labels=labels, output_attentions=True)
+        assert isinstance(result, dict)
+        assert "attentions" in result
+        attentions = result["attentions"]
+        assert isinstance(attentions, tuple)
+        # n_layers=1 * n_loops=3 = 3 attention matrices
+        assert len(attentions) == 3
+
+    def test_pope_model_output_attentions(self) -> None:
+        """PoPE model should return attention weights."""
+        model = ArithmeticModel(
+            d_model=64,
+            n_layers=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="pope",
+        )
+        input_ids = torch.randint(0, 10, (2, 8))
+        labels = torch.randint(0, 10, (2, 8))
+
+        result = model(input_ids, labels=labels, output_attentions=True)
+        assert isinstance(result, dict)
+        assert "attentions" in result
+        attentions = result["attentions"]
+        assert len(attentions) == 2
+        for attn in attentions:
+            assert attn.shape == (2, 4, 8, 8)
 
 
 class TestConfigVariants:

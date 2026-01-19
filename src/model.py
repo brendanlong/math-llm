@@ -377,7 +377,8 @@ class TransformerBlock(nn.Module):
         k: torch.Tensor,
         v: torch.Tensor,
         use_softmax1: bool,
-    ) -> torch.Tensor:
+        output_attentions: bool = False,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Manual attention implementation supporting softmax variants.
 
         Args:
@@ -385,9 +386,12 @@ class TransformerBlock(nn.Module):
             k: Key tensor (batch, n_heads, seq_len, head_dim or 2*head_dim for PoPE)
             v: Value tensor (batch, n_heads, seq_len, head_dim)
             use_softmax1: Whether to use softmax1 instead of standard softmax
+            output_attentions: Whether to return attention weights
 
         Returns:
-            Attention output (batch, n_heads, seq_len, head_dim)
+            Tuple of:
+                - Attention output (batch, n_heads, seq_len, head_dim)
+                - Attention weights (batch, n_heads, seq_len, seq_len) if output_attentions
         """
         seq_len = q.shape[2]
 
@@ -409,24 +413,34 @@ class TransformerBlock(nn.Module):
         else:
             attn_weights = F.softmax(attn_scores, dim=-1)
 
+        # Save weights before dropout for visualization
+        attn_weights_for_output = attn_weights if output_attentions else None
+
         # Apply dropout
         if self.training:
             attn_weights = self.attn_dropout(attn_weights)
 
         # Compute weighted sum
-        return torch.matmul(attn_weights, v)
+        output = torch.matmul(attn_weights, v)
+        return output, attn_weights_for_output
 
     def forward(
-        self, x: torch.Tensor, positions: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        self,
+        x: torch.Tensor,
+        positions: Optional[torch.Tensor] = None,
+        output_attentions: bool = False,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Forward pass through transformer block.
 
         Args:
             x: Input tensor of shape (batch_size, seq_len, d_model)
             positions: Position indices of shape (seq_len,), required for PoPE
+            output_attentions: Whether to return attention weights
 
         Returns:
-            Output tensor of same shape as input
+            Tuple of:
+                - Output tensor of same shape as input
+                - Attention weights (batch, n_heads, seq_len, seq_len) if output_attentions
         """
         batch_size, seq_len, _ = x.shape
 
@@ -460,13 +474,21 @@ class TransformerBlock(nn.Module):
         # Choose attention implementation
         # PoPE requires manual attention because it doubles head_dim
         # RoPE preserves head_dim, so it can use Flash Attention
+        # output_attentions requires manual attention (Flash doesn't return weights)
         use_manual = (
-            self.softmax_variant == "softmax1" or self.positional_encoding == "pope"
+            self.softmax_variant == "softmax1"
+            or self.positional_encoding == "pope"
+            or output_attentions
         )
 
+        attn_weights: Optional[torch.Tensor] = None
         if use_manual:
-            attn_out = self._manual_attention(
-                q, k, v, use_softmax1=(self.softmax_variant == "softmax1")
+            attn_out, attn_weights = self._manual_attention(
+                q,
+                k,
+                v,
+                use_softmax1=(self.softmax_variant == "softmax1"),
+                output_attentions=output_attentions,
             )
         else:
             # Use optimized scaled dot-product attention with Flash Attention
@@ -489,7 +511,7 @@ class TransformerBlock(nn.Module):
         ff_out = self.feed_forward(x)
         x = self.norm2(x + self.dropout(ff_out))
 
-        return x
+        return x, attn_weights
 
 
 def _init_weights(module: nn.Module) -> None:
@@ -532,15 +554,17 @@ class BaseModel(nn.Module, ABC):
         self,
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
-    ) -> dict[str, torch.Tensor] | torch.Tensor:
+        output_attentions: bool = False,
+    ) -> dict[str, torch.Tensor | tuple[torch.Tensor, ...]] | torch.Tensor:
         """Forward pass through the model.
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
             labels: Optional labels for computing loss
+            output_attentions: Whether to return attention weights from all layers
 
         Returns:
-            If labels provided: dict with 'loss' and 'logits'
+            If labels provided: dict with 'loss', 'logits', and optionally 'attentions'
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
         ...
@@ -586,6 +610,9 @@ class BaseModel(nn.Module, ABC):
                     logits = outputs["logits"]
                 else:
                     logits = outputs
+
+                # Ensure logits is a tensor (not a tuple from attentions)
+                assert isinstance(logits, torch.Tensor)
 
                 # Get logits for last token
                 logits = logits[:, -1, :] / temperature
@@ -692,15 +719,17 @@ class ArithmeticModel(BaseModel):
         self,
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
-    ) -> dict[str, torch.Tensor] | torch.Tensor:
+        output_attentions: bool = False,
+    ) -> dict[str, torch.Tensor | tuple[torch.Tensor, ...]] | torch.Tensor:
         """Forward pass through the model.
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
             labels: Optional labels for computing loss
+            output_attentions: Whether to return attention weights from all layers
 
         Returns:
-            If labels provided: dict with 'loss' and 'logits'
+            If labels provided: dict with 'loss', 'logits', and optionally 'attentions'
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
         _batch_size, seq_len = input_ids.shape
@@ -720,8 +749,11 @@ class ArithmeticModel(BaseModel):
             x = x + self.sinusoidal_pe(seq_len)
 
         # Apply transformer layers (pass positions for pope/rope)
+        all_attentions: list[torch.Tensor] = []
         for layer in self.layers:
-            x = layer(x, positions)
+            x, attn_weights = layer(x, positions, output_attentions=output_attentions)
+            if attn_weights is not None:
+                all_attentions.append(attn_weights)
 
         # Final layer norm and projection
         x = self.ln_f(x)
@@ -729,8 +761,13 @@ class ArithmeticModel(BaseModel):
 
         # Compute loss if labels are provided
         if labels is not None:
-            loss = compute_loss(logits, labels)
-            return {"loss": loss, "logits": logits}
+            result: dict[str, torch.Tensor | tuple[torch.Tensor, ...]] = {
+                "loss": compute_loss(logits, labels),
+                "logits": logits,
+            }
+            if output_attentions:
+                result["attentions"] = tuple(all_attentions)
+            return result
 
         return logits
 
@@ -830,15 +867,17 @@ class UniversalTransformerModel(BaseModel):
         self,
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
-    ) -> dict[str, torch.Tensor] | torch.Tensor:
+        output_attentions: bool = False,
+    ) -> dict[str, torch.Tensor | tuple[torch.Tensor, ...]] | torch.Tensor:
         """Forward pass through the model.
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
             labels: Optional labels for computing loss
+            output_attentions: Whether to return attention weights from all layers
 
         Returns:
-            If labels provided: dict with 'loss' and 'logits'
+            If labels provided: dict with 'loss', 'logits', and optionally 'attentions'
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
         """
         _batch_size, seq_len = input_ids.shape
@@ -861,6 +900,7 @@ class UniversalTransformerModel(BaseModel):
         loop_embs = self.loop_embeddings.weight if self.use_loop_embeddings else None
 
         # Apply transformer layers repeatedly (Universal Transformer loop)
+        all_attentions: list[torch.Tensor] = []
         for loop_idx in range(self.n_loops):
             # Optionally add loop embedding to help model track iteration
             if loop_embs is not None:
@@ -868,7 +908,11 @@ class UniversalTransformerModel(BaseModel):
 
             # Apply all layers in this loop iteration (pass positions for PoPE)
             for layer in self.layers:
-                x = layer(x, positions)
+                x, attn_weights = layer(
+                    x, positions, output_attentions=output_attentions
+                )
+                if attn_weights is not None:
+                    all_attentions.append(attn_weights)
 
         # Final layer norm and projection
         x = self.ln_f(x)
@@ -876,8 +920,13 @@ class UniversalTransformerModel(BaseModel):
 
         # Compute loss if labels are provided
         if labels is not None:
-            loss = compute_loss(logits, labels)
-            return {"loss": loss, "logits": logits}
+            result: dict[str, torch.Tensor | tuple[torch.Tensor, ...]] = {
+                "loss": compute_loss(logits, labels),
+                "logits": logits,
+            }
+            if output_attentions:
+                result["attentions"] = tuple(all_attentions)
+            return result
 
         return logits
 
@@ -1126,16 +1175,22 @@ class FeedbackTransformerModel(BaseModel):
         self,
         input_ids: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
-    ) -> dict[str, torch.Tensor] | torch.Tensor:
+        output_attentions: bool = False,
+    ) -> dict[str, torch.Tensor | tuple[torch.Tensor, ...]] | torch.Tensor:
         """Forward pass through the model (sequential over sequence).
 
         Args:
             input_ids: Input token IDs of shape (batch_size, seq_len)
             labels: Optional labels for computing loss
+            output_attentions: Not supported for FeedbackTransformer (ignored)
 
         Returns:
             If labels provided: dict with 'loss' and 'logits'
             Otherwise: logits tensor of shape (batch_size, seq_len, vocab_size)
+
+        Note:
+            output_attentions is not supported for FeedbackTransformer due to
+            its unique memory-based attention architecture.
         """
         _batch_size, seq_len = input_ids.shape
 
@@ -1203,8 +1258,11 @@ class FeedbackTransformerModel(BaseModel):
 
         # Compute loss if labels are provided
         if labels is not None:
-            loss = compute_loss(logits, labels)
-            return {"loss": loss, "logits": logits}
+            result: dict[str, torch.Tensor | tuple[torch.Tensor, ...]] = {
+                "loss": compute_loss(logits, labels),
+                "logits": logits,
+            }
+            return result
 
         return logits
 

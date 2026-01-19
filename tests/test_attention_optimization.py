@@ -25,7 +25,7 @@ class TestAttentionOptimization:
 
         block = TransformerBlock(d_model=64, n_heads=n_heads, d_ff=128)
 
-        output = block(x)
+        output, _attn = block(x)
         assert output.shape == x.shape
 
     def test_gradient_flow(self, test_inputs: tuple[torch.Tensor, int]) -> None:
@@ -36,7 +36,7 @@ class TestAttentionOptimization:
         block = TransformerBlock(d_model=64, n_heads=n_heads, d_ff=128)
 
         # Forward pass - use a loss that creates meaningful gradients
-        output = block(x)
+        output, _attn = block(x)
         # Square the output to amplify gradients and ensure they're meaningful
         loss = (output**2).mean()
 
@@ -62,14 +62,14 @@ class TestAttentionOptimization:
 
         block = TransformerBlock(d_model=64, n_heads=n_heads, d_ff=128)
 
-        output = block(x)
+        output, _attn = block(x)
         assert output.shape == x.shape
 
         # Test that the model produces deterministic output in eval mode
         block.eval()
         with torch.no_grad():
-            output1 = block(x)
-            output2 = block(x)
+            output1, _ = block(x)
+            output2, _ = block(x)
             assert torch.allclose(output1, output2, atol=1e-6)
 
     def test_training_vs_eval_mode(self, test_inputs: tuple[torch.Tensor, int]) -> None:
@@ -80,12 +80,12 @@ class TestAttentionOptimization:
 
         # Training mode
         block.train()
-        output_train = block(x)
+        output_train, _ = block(x)
 
         # Eval mode
         block.eval()
         with torch.no_grad():
-            output_eval = block(x)
+            output_eval, _ = block(x)
 
         # Outputs should be different due to dropout
         assert not torch.allclose(output_train, output_eval, atol=1e-4)

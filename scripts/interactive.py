@@ -52,6 +52,9 @@ def greedy_generate_with_probs(
             else:
                 logits = outputs
 
+            # Ensure logits is a tensor (not a tuple from attentions)
+            assert isinstance(logits, torch.Tensor)
+
             # Get logits for last token
             logits = logits[:, -1, :]
 
@@ -252,6 +255,9 @@ def get_top_k_predictions(
             logits = outputs["logits"]
         else:
             logits = outputs
+
+        # Ensure logits is a tensor (not a tuple from attentions)
+        assert isinstance(logits, torch.Tensor)
 
         # Get logits for last position - always use temperature=1.0 for probability display
         logits = logits[:, -1, :]
