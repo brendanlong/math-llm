@@ -28,9 +28,9 @@ class ModelConfig(BaseModel):
     )
 
     # Attention variants
-    positional_encoding: Literal["learned", "pope"] = Field(
+    positional_encoding: Literal["learned", "sinusoidal", "pope", "rope"] = Field(
         default="learned",
-        description="Positional encoding type: learned embeddings or PoPE (polar)",
+        description="Positional encoding type: learned, sinusoidal, pope, or rope",
     )
     softmax_variant: Literal["standard", "softmax1"] = Field(
         default="standard",

@@ -1,4 +1,4 @@
-"""Tests for attention variants: PoPE and softmax1."""
+"""Tests for attention variants: PoPE, RoPE, sinusoidal, and softmax1."""
 
 import torch
 
@@ -6,6 +6,8 @@ from src.config import ModelConfig
 from src.model import (
     ArithmeticModel,
     PoPE,
+    RoPE,
+    SinusoidalPositionalEncoding,
     TransformerBlock,
     UniversalTransformerModel,
     create_model_from_config,
@@ -117,6 +119,90 @@ class TestPoPE:
         assert not torch.allclose(k1, k2)
 
 
+class TestRoPE:
+    """Tests for Rotary Position Embeddings (RoPE)."""
+
+    def test_init(self) -> None:
+        """RoPE should initialize correctly."""
+        rope = RoPE(d_model=64, n_heads=4)
+        assert rope.d_model == 64
+        assert rope.n_heads == 4
+        assert rope.head_dim == 16
+        assert rope.inv_freq.shape == (8,)  # head_dim // 2
+
+    def test_forward_preserves_shape(self) -> None:
+        """RoPE forward should preserve shape (unlike PoPE)."""
+        rope = RoPE(d_model=64, n_heads=4)
+        batch_size, n_heads, seq_len, head_dim = 2, 4, 8, 16
+
+        q = torch.randn(batch_size, n_heads, seq_len, head_dim)
+        k = torch.randn(batch_size, n_heads, seq_len, head_dim)
+        positions = torch.arange(seq_len)
+
+        q_rope, k_rope = rope(q, k, positions)
+
+        # RoPE preserves shape (unlike PoPE which doubles head_dim)
+        assert q_rope.shape == (batch_size, n_heads, seq_len, head_dim)
+        assert k_rope.shape == (batch_size, n_heads, seq_len, head_dim)
+
+    def test_forward_values_finite(self) -> None:
+        """RoPE outputs should be finite."""
+        rope = RoPE(d_model=64, n_heads=4)
+        q = torch.randn(2, 4, 8, 16)
+        k = torch.randn(2, 4, 8, 16)
+        positions = torch.arange(8)
+
+        q_rope, k_rope = rope(q, k, positions)
+
+        assert torch.isfinite(q_rope).all()
+        assert torch.isfinite(k_rope).all()
+
+    def test_position_dependent(self) -> None:
+        """RoPE should produce different outputs for different positions."""
+        rope = RoPE(d_model=64, n_heads=4)
+        q = torch.randn(2, 4, 8, 16)
+        k = torch.randn(2, 4, 8, 16)
+
+        positions1 = torch.arange(8)
+        positions2 = torch.arange(8, 16)
+
+        q1, k1 = rope(q, k, positions1)
+        q2, k2 = rope(q, k, positions2)
+
+        assert not torch.allclose(q1, q2)
+        assert not torch.allclose(k1, k2)
+
+
+class TestSinusoidalPositionalEncoding:
+    """Tests for fixed sinusoidal positional encoding."""
+
+    def test_init(self) -> None:
+        """Sinusoidal PE should initialize correctly."""
+        sinusoidal = SinusoidalPositionalEncoding(d_model=64, max_seq_len=128)
+        assert sinusoidal.pe.shape == (1, 128, 64)
+
+    def test_forward_output_shape(self) -> None:
+        """Sinusoidal PE should return correct shape."""
+        sinusoidal = SinusoidalPositionalEncoding(d_model=64, max_seq_len=128)
+        pe = sinusoidal(seq_len=16)
+        assert pe.shape == (1, 16, 64)
+
+    def test_values_bounded(self) -> None:
+        """Sinusoidal PE values should be in [-1, 1] (sin/cos range)."""
+        sinusoidal = SinusoidalPositionalEncoding(d_model=64, max_seq_len=128)
+        pe = sinusoidal(seq_len=16)
+        assert (pe >= -1.0).all()
+        assert (pe <= 1.0).all()
+
+    def test_no_trainable_parameters(self) -> None:
+        """Sinusoidal PE should have no trainable parameters."""
+        sinusoidal = SinusoidalPositionalEncoding(d_model=64, max_seq_len=128)
+        trainable_params = sum(
+            p.numel() for p in sinusoidal.parameters() if p.requires_grad
+        )
+        assert trainable_params == 0
+
+
 class TestTransformerBlockVariants:
     """Tests for TransformerBlock with attention variants."""
 
@@ -158,6 +244,32 @@ class TestTransformerBlockVariants:
             n_heads=4,
             d_ff=128,
             positional_encoding="pope",
+            softmax_variant="softmax1",
+        )
+        x = torch.randn(2, 8, 64)
+        positions = torch.arange(8)
+        out = block(x, positions)
+        assert out.shape == x.shape
+        assert torch.isfinite(out).all()
+
+    def test_rope_variant(self) -> None:
+        """Block with RoPE positional encoding should work."""
+        block = TransformerBlock(
+            d_model=64, n_heads=4, d_ff=128, positional_encoding="rope"
+        )
+        x = torch.randn(2, 8, 64)
+        positions = torch.arange(8)
+        out = block(x, positions)
+        assert out.shape == x.shape
+        assert torch.isfinite(out).all()
+
+    def test_rope_with_softmax1(self) -> None:
+        """Block with both RoPE and softmax1 should work."""
+        block = TransformerBlock(
+            d_model=64,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="rope",
             softmax_variant="softmax1",
         )
         x = torch.randn(2, 8, 64)
@@ -228,6 +340,64 @@ class TestModelVariants:
         assert isinstance(out, torch.Tensor)
         assert out.shape == (2, 8, VOCAB_SIZE)
 
+    def test_arithmetic_model_rope(self) -> None:
+        """ArithmeticModel with RoPE should work."""
+        model = ArithmeticModel(
+            d_model=64,
+            n_layers=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="rope",
+        )
+        input_ids = torch.randint(0, 10, (2, 8))
+        out = model(input_ids)
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == (2, 8, VOCAB_SIZE)
+
+    def test_arithmetic_model_sinusoidal(self) -> None:
+        """ArithmeticModel with sinusoidal PE should work."""
+        model = ArithmeticModel(
+            d_model=64,
+            n_layers=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="sinusoidal",
+        )
+        input_ids = torch.randint(0, 10, (2, 8))
+        out = model(input_ids)
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == (2, 8, VOCAB_SIZE)
+
+    def test_universal_model_rope(self) -> None:
+        """UniversalTransformerModel with RoPE should work."""
+        model = UniversalTransformerModel(
+            d_model=64,
+            n_layers=1,
+            n_loops=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="rope",
+        )
+        input_ids = torch.randint(0, 10, (2, 8))
+        out = model(input_ids)
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == (2, 8, VOCAB_SIZE)
+
+    def test_universal_model_sinusoidal(self) -> None:
+        """UniversalTransformerModel with sinusoidal PE should work."""
+        model = UniversalTransformerModel(
+            d_model=64,
+            n_layers=1,
+            n_loops=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="sinusoidal",
+        )
+        input_ids = torch.randint(0, 10, (2, 8))
+        out = model(input_ids)
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == (2, 8, VOCAB_SIZE)
+
 
 class TestConfigVariants:
     """Tests for creating models from config with variants."""
@@ -258,6 +428,32 @@ class TestConfigVariants:
         assert isinstance(model, ArithmeticModel)
         assert model.softmax_variant == "softmax1"
 
+    def test_create_rope_model_from_config(self) -> None:
+        """Should create model with RoPE from config."""
+        config = ModelConfig(
+            d_model=64,
+            n_layers=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="rope",
+        )
+        model = create_model_from_config(config)
+        assert isinstance(model, ArithmeticModel)
+        assert model.positional_encoding == "rope"
+
+    def test_create_sinusoidal_model_from_config(self) -> None:
+        """Should create model with sinusoidal PE from config."""
+        config = ModelConfig(
+            d_model=64,
+            n_layers=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="sinusoidal",
+        )
+        model = create_model_from_config(config)
+        assert isinstance(model, ArithmeticModel)
+        assert model.positional_encoding == "sinusoidal"
+
     def test_feedback_rejects_pope(self) -> None:
         """Feedback architecture should reject PoPE."""
         config = ModelConfig(
@@ -272,7 +468,23 @@ class TestConfigVariants:
             create_model_from_config(config)
             assert False, "Should have raised ValueError"
         except ValueError as e:
-            assert "PoPE is not supported" in str(e)
+            assert "not supported with feedback architecture" in str(e)
+
+    def test_feedback_rejects_rope(self) -> None:
+        """Feedback architecture should reject RoPE."""
+        config = ModelConfig(
+            architecture="feedback",
+            d_model=64,
+            n_layers=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="rope",
+        )
+        try:
+            create_model_from_config(config)
+            assert False, "Should have raised ValueError"
+        except ValueError as e:
+            assert "not supported with feedback architecture" in str(e)
 
     def test_feedback_accepts_softmax1(self) -> None:
         """Feedback architecture should accept softmax1."""
@@ -286,3 +498,16 @@ class TestConfigVariants:
         )
         model = create_model_from_config(config)
         assert model.softmax_variant == "softmax1"
+
+    def test_feedback_accepts_sinusoidal(self) -> None:
+        """Feedback architecture should accept sinusoidal PE."""
+        config = ModelConfig(
+            architecture="feedback",
+            d_model=64,
+            n_layers=2,
+            n_heads=4,
+            d_ff=128,
+            positional_encoding="sinusoidal",
+        )
+        model = create_model_from_config(config)
+        assert model.positional_encoding == "sinusoidal"

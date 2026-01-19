@@ -141,6 +141,122 @@ class PoPE(nn.Module):
         return q_pope, k_pope
 
 
+class SinusoidalPositionalEncoding(nn.Module):
+    """Fixed sinusoidal positional encoding from "Attention is All You Need".
+
+    Uses fixed sine and cosine functions to encode position information:
+    - PE(pos, 2i) = sin(pos / 10000^(2i/d_model))
+    - PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
+
+    Unlike learned embeddings, these are fixed and don't add trainable parameters.
+    """
+
+    def __init__(self, d_model: int, max_seq_len: int = 1024):
+        """Initialize sinusoidal positional encoding.
+
+        Args:
+            d_model: Model dimension
+            max_seq_len: Maximum sequence length to precompute
+        """
+        super().__init__()
+        pe = torch.zeros(max_seq_len, d_model)
+        position = torch.arange(0, max_seq_len).unsqueeze(1).float()
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_seq_len, d_model)
+
+    def forward(self, seq_len: int) -> torch.Tensor:
+        """Get positional encoding for sequence length.
+
+        Args:
+            seq_len: Length of the sequence
+
+        Returns:
+            Positional encoding of shape (1, seq_len, d_model)
+        """
+        pe: torch.Tensor = self.pe  # type: ignore[assignment]
+        return pe[:, :seq_len]
+
+
+class RoPE(nn.Module):
+    """Rotary Position Embeddings (RoPE).
+
+    RoPE applies rotation matrices to query and key vectors based on position.
+    Pairs of dimensions are rotated by position-dependent angles, encoding
+    relative position information directly into the attention scores.
+
+    Unlike additive position embeddings, RoPE is applied within attention
+    by rotating Q and K vectors.
+    """
+
+    def __init__(self, d_model: int, n_heads: int, base: float = 10000.0):
+        """Initialize RoPE.
+
+        Args:
+            d_model: Model dimension (must equal n_heads * head_dim)
+            n_heads: Number of attention heads
+            base: Base for frequency computation (theta)
+        """
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+
+        # Compute inverse frequencies for rotation
+        # Each pair of dimensions gets a frequency
+        inv_freq = 1.0 / (
+            base ** (torch.arange(0, self.head_dim, 2).float() / self.head_dim)
+        )
+        self.register_buffer("inv_freq", inv_freq)
+
+    def forward(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        positions: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Apply RoPE rotation to queries and keys.
+
+        Args:
+            q: Query tensor of shape (batch, n_heads, seq_len, head_dim)
+            k: Key tensor of shape (batch, n_heads, seq_len, head_dim)
+            positions: Position indices of shape (seq_len,)
+
+        Returns:
+            Tuple of (rotated_q, rotated_k) with same shapes as inputs
+        """
+        inv_freq: torch.Tensor = self.inv_freq  # type: ignore[assignment]
+
+        # Compute rotation angles: positions * inv_freq
+        # Shape: (seq_len, head_dim // 2)
+        freqs = positions.unsqueeze(-1).float() * inv_freq.unsqueeze(0)
+
+        # Double freqs for pairing: (seq_len, head_dim)
+        # Each pair of dimensions uses the same frequency
+        freqs = torch.cat([freqs, freqs], dim=-1)
+
+        # Compute cos and sin for rotation
+        cos = torch.cos(freqs).unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, head_dim)
+        sin = torch.sin(freqs).unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, head_dim)
+
+        # Apply rotation using the complex multiplication trick:
+        # [cos, -sin] [x1]   [x1 * cos - x2 * sin]
+        # [sin,  cos] [x2] = [x1 * sin + x2 * cos]
+        # Split into pairs and rotate
+        def rotate(x: torch.Tensor) -> torch.Tensor:
+            # Split into first half and second half of dimensions
+            x1 = x[..., : self.head_dim // 2]
+            x2 = x[..., self.head_dim // 2 :]
+            # Rotate by concatenating [-x2, x1] (for sin component)
+            rotated = torch.cat([-x2, x1], dim=-1)
+            return x * cos + rotated * sin
+
+        return rotate(q), rotate(k)
+
+
 def compute_loss(
     logits: torch.Tensor,
     labels: torch.Tensor,
@@ -179,7 +295,7 @@ def compute_loss(
 class TransformerBlock(nn.Module):
     """Single transformer decoder block with masked self-attention.
 
-    Supports configurable positional encoding (learned or PoPE) and
+    Supports configurable positional encoding (learned, sinusoidal, pope, or rope) and
     softmax variants (standard or softmax1).
     """
 
@@ -199,7 +315,7 @@ class TransformerBlock(nn.Module):
             n_heads: Number of attention heads
             d_ff: Feed-forward dimension
             dropout: Dropout probability
-            positional_encoding: "learned" or "pope"
+            positional_encoding: "learned", "sinusoidal", "pope", or "rope"
             softmax_variant: "standard" or "softmax1"
         """
         super().__init__()
@@ -216,9 +332,11 @@ class TransformerBlock(nn.Module):
         self.v_proj = nn.Linear(d_model, d_model)
         self.out_proj = nn.Linear(d_model, d_model)
 
-        # PoPE for polar positional encoding
+        # Position encoding applied within attention
         if positional_encoding == "pope":
             self.pope = PoPE(d_model, n_heads)
+        elif positional_encoding == "rope":
+            self.rope = RoPE(d_model, n_heads)
 
         self.feed_forward = nn.Sequential(
             nn.Linear(d_model, d_ff),
@@ -310,13 +428,19 @@ class TransformerBlock(nn.Module):
             .transpose(1, 2)
         )
 
-        # Apply PoPE if configured
+        # Apply position encoding within attention (PoPE or RoPE)
         if self.positional_encoding == "pope":
             if positions is None:
                 positions = torch.arange(seq_len, device=x.device)
             q, k = self.pope(q, k, positions)
+        elif self.positional_encoding == "rope":
+            if positions is None:
+                positions = torch.arange(seq_len, device=x.device)
+            q, k = self.rope(q, k, positions)
 
         # Choose attention implementation
+        # PoPE requires manual attention because it doubles head_dim
+        # RoPE preserves head_dim, so it can use Flash Attention
         use_manual = (
             self.softmax_variant == "softmax1" or self.positional_encoding == "pope"
         )
@@ -502,7 +626,7 @@ class ArithmeticModel(BaseModel):
             d_ff: Feed-forward dimension
             max_seq_len: Maximum sequence length
             dropout: Dropout probability
-            positional_encoding: "learned" for learned embeddings, "pope" for PoPE
+            positional_encoding: "learned", "sinusoidal", "pope", or "rope"
             softmax_variant: "standard" or "softmax1" (+1 in denominator)
         """
         super().__init__()
@@ -516,9 +640,12 @@ class ArithmeticModel(BaseModel):
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        # Only use learned position embeddings when not using PoPE
+        # Position embeddings: learned or sinusoidal (additive at model level)
+        # pope and rope are applied within attention layers
         if positional_encoding == "learned":
             self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        elif positional_encoding == "sinusoidal":
+            self.sinusoidal_pe = SinusoidalPositionalEncoding(d_model, max_seq_len)
 
         # Transformer layers
         self.layers = nn.ModuleList(
@@ -563,14 +690,17 @@ class ArithmeticModel(BaseModel):
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
         x.mul_(self._embed_scale)
 
-        # Position indices for PoPE or learned embeddings
+        # Position indices for attention-level encoding (pope/rope)
         positions = torch.arange(seq_len, device=input_ids.device)
 
-        # Add learned positional embeddings only when not using PoPE
+        # Add positional embeddings at model level (learned or sinusoidal)
+        # pope and rope are applied within attention layers
         if self.positional_encoding == "learned":
             x = x + self.position_embedding(positions)
+        elif self.positional_encoding == "sinusoidal":
+            x = x + self.sinusoidal_pe(seq_len)
 
-        # Apply transformer layers (pass positions for PoPE)
+        # Apply transformer layers (pass positions for pope/rope)
         for layer in self.layers:
             x = layer(x, positions)
 
@@ -627,7 +757,7 @@ class UniversalTransformerModel(BaseModel):
             max_seq_len: Maximum sequence length
             dropout: Dropout probability
             use_loop_embeddings: Whether to add learnable loop position embeddings
-            positional_encoding: "learned" for learned embeddings, "pope" for PoPE
+            positional_encoding: "learned", "sinusoidal", "pope", or "rope"
             softmax_variant: "standard" or "softmax1" (+1 in denominator)
         """
         super().__init__()
@@ -644,9 +774,12 @@ class UniversalTransformerModel(BaseModel):
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        # Only use learned position embeddings when not using PoPE
+        # Position embeddings: learned or sinusoidal (additive at model level)
+        # pope and rope are applied within attention layers
         if positional_encoding == "learned":
             self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        elif positional_encoding == "sinusoidal":
+            self.sinusoidal_pe = SinusoidalPositionalEncoding(d_model, max_seq_len)
 
         # Optional loop embeddings to help model distinguish iterations
         if use_loop_embeddings:
@@ -695,12 +828,15 @@ class UniversalTransformerModel(BaseModel):
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
         x.mul_(self._embed_scale)
 
-        # Position indices for PoPE or learned embeddings
+        # Position indices for attention-level encoding (pope/rope)
         positions = torch.arange(seq_len, device=input_ids.device)
 
-        # Add learned positional embeddings only when not using PoPE
+        # Add positional embeddings at model level (learned or sinusoidal)
+        # pope and rope are applied within attention layers
         if self.positional_encoding == "learned":
             x = x + self.position_embedding(positions)
+        elif self.positional_encoding == "sinusoidal":
+            x = x + self.sinusoidal_pe(seq_len)
 
         # Pre-fetch all loop embeddings for efficiency
         loop_embs = self.loop_embeddings.weight if self.use_loop_embeddings else None
@@ -884,8 +1020,8 @@ class FeedbackTransformerModel(BaseModel):
     - Shared K/V projections across all layers
     - Requires sequential processing during training
 
-    Note: PoPE is not supported with feedback architecture due to the
-    memory-based attention pattern. Use learned positional embeddings instead.
+    Note: PoPE and RoPE are not supported with feedback architecture due to the
+    memory-based attention pattern. Use learned or sinusoidal positional embeddings.
     """
 
     architecture: ArchitectureType = "feedback"
@@ -912,18 +1048,18 @@ class FeedbackTransformerModel(BaseModel):
             d_ff: Feed-forward dimension
             max_seq_len: Maximum sequence length
             dropout: Dropout probability
-            positional_encoding: Only "learned" is supported for feedback architecture
+            positional_encoding: "learned" or "sinusoidal" (pope/rope not supported)
             softmax_variant: "standard" or "softmax1" (+1 in denominator)
 
         Raises:
-            ValueError: If positional_encoding is "pope" (not supported)
+            ValueError: If positional_encoding is "pope" or "rope" (not supported)
         """
         super().__init__()
 
-        if positional_encoding == "pope":
+        if positional_encoding in ("pope", "rope"):
             raise ValueError(
-                "PoPE is not supported with feedback architecture. "
-                "Use positional_encoding='learned' instead."
+                f"{positional_encoding} is not supported with feedback architecture. "
+                "Use positional_encoding='learned' or 'sinusoidal' instead."
             )
 
         self.d_model = d_model
@@ -936,7 +1072,11 @@ class FeedbackTransformerModel(BaseModel):
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        # Position embeddings: learned or sinusoidal (additive at model level)
+        if positional_encoding == "learned":
+            self.position_embedding = nn.Embedding(max_seq_len, d_model)
+        elif positional_encoding == "sinusoidal":
+            self.sinusoidal_pe = SinusoidalPositionalEncoding(d_model, max_seq_len)
 
         # Layer weights for memory composition (L+1 scalars: embedding + L layers)
         # Initialized to zero so softmax gives uniform weights initially
@@ -984,9 +1124,12 @@ class FeedbackTransformerModel(BaseModel):
         embeddings = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
         embeddings.mul_(self._embed_scale)
 
-        # Add positional embeddings
-        positions = torch.arange(seq_len, device=input_ids.device)
-        embeddings = embeddings + self.position_embedding(positions)
+        # Add positional embeddings (learned or sinusoidal)
+        if self.positional_encoding == "learned":
+            positions = torch.arange(seq_len, device=input_ids.device)
+            embeddings = embeddings + self.position_embedding(positions)
+        elif self.positional_encoding == "sinusoidal":
+            embeddings = embeddings + self.sinusoidal_pe(seq_len)
 
         # Compute softmax weights for layer combination
         weights = F.softmax(self.layer_weights, dim=0)
