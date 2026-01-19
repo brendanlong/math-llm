@@ -80,8 +80,8 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="checkpoints",
-        help="Output directory for checkpoints",
+        default=None,
+        help="Output directory for checkpoints (default: checkpoints/<config-name>/)",
     )
     parser.add_argument(
         "--batch-size",
@@ -186,6 +186,13 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
+    # Derive output directory from config name if not specified
+    if args.output_dir is None:
+        config_name = (
+            args.config.stem
+        )  # e.g., "standard-small" from "config/standard-small.yaml"
+        args.output_dir = str(Path("checkpoints") / config_name)
 
     # Setup
     setup_logging(include_file_handler=True)

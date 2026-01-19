@@ -145,7 +145,7 @@ python scripts/train.py --config config/standard-small.yaml --output-dir checkpo
 **Data and I/O:**
 
 - `--data-dir`: Directory with train/val/test JSON files - default: `data`
-- `--output-dir`: Checkpoint output directory - default: `checkpoints`
+- `--output-dir`: Checkpoint output directory - default: `checkpoints/<config-name>/`
 - `--num-workers`: Data loading workers - default: `4`
 
 **Logging and Checkpointing:**
