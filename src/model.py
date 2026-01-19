@@ -107,29 +107,40 @@ class PoPE(nn.Module):
         # Shape: (seq_len, head_dim)
         pos_phases = positions.unsqueeze(-1).float() * freqs.unsqueeze(0)
 
-        # Add learnable phase bias
+        # Query phases: just position-based, NO phase bias (per paper equations 7-8)
+        # Shape: (1, 1, seq_len, head_dim)
+        q_phases = pos_phases.unsqueeze(0).unsqueeze(0)
+
+        # Key phases: position-based WITH learnable phase bias δ
+        # The bias is clamped to [-2π, 0] for stability (per paper)
         # Shape: (1, n_heads, seq_len, head_dim)
-        phases = pos_phases.unsqueeze(0).unsqueeze(0) + self.phase_bias.unsqueeze(
+        clamped_bias = torch.clamp(self.phase_bias, min=-2 * math.pi, max=0)
+        k_phases = pos_phases.unsqueeze(0).unsqueeze(0) + clamped_bias.unsqueeze(
             0
         ).unsqueeze(2)
 
         # Convert polar to Cartesian coordinates for efficient computation:
-        # q_cart = μ_q * (cos(φ), sin(φ))
-        # k_cart = μ_k * (cos(φ), sin(φ))
+        # q_cart = μ_q * (cos(φ_q), sin(φ_q))
+        # k_cart = μ_k * (cos(φ_k + δ), sin(φ_k + δ))
         # Then real part of q_cart^H @ k_cart gives the attention score
 
-        cos_phases = torch.cos(phases)
-        sin_phases = torch.sin(phases)
+        # Query: cos/sin of position phases only
+        q_cos = torch.cos(q_phases)
+        q_sin = torch.sin(q_phases)
+
+        # Key: cos/sin of position phases + learned bias
+        k_cos = torch.cos(k_phases)
+        k_sin = torch.sin(k_phases)
 
         # Real and imaginary parts
-        q_real = mu_q * cos_phases
-        q_imag = mu_q * sin_phases
-        k_real = mu_k * cos_phases
-        k_imag = mu_k * sin_phases
+        q_real = mu_q * q_cos
+        q_imag = mu_q * q_sin
+        k_real = mu_k * k_cos
+        k_imag = mu_k * k_sin
 
         # Pack as interleaved real/imag for matrix multiplication
         # We'll compute: sum(q_real * k_real + q_imag * k_imag) per head
-        # which equals: sum(μ_q * μ_k * cos(phase_diff))
+        # which equals: sum(μ_q * μ_k * cos((s-t)*θ + δ))
         # This is the real part of the complex dot product
 
         # For efficient computation with standard attention, we need to

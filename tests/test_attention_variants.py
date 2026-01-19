@@ -103,7 +103,13 @@ class TestPoPE:
         assert torch.isfinite(k_pope).all()
 
     def test_learnable_phase_bias(self) -> None:
-        """Phase bias should be learnable and affect output."""
+        """Phase bias should be learnable and affect output.
+
+        Per the PoPE paper, phase bias is only applied to keys, not queries.
+        The bias is clamped to [-2π, 0].
+        """
+        import math
+
         pope = PoPE(d_model=64, n_heads=4)
         q = torch.randn(2, 4, 8, 16)
         k = torch.randn(2, 4, 8, 16)
@@ -111,12 +117,13 @@ class TestPoPE:
 
         q1, k1 = pope(q, k, positions)
 
-        # Modify phase bias
-        pope.phase_bias.data.fill_(0.5)
+        # Modify phase bias (must be in valid range [-2π, 0])
+        pope.phase_bias.data.fill_(-math.pi / 2)
         q2, k2 = pope(q, k, positions)
 
-        assert not torch.allclose(q1, q2)
-        assert not torch.allclose(k1, k2)
+        # Phase bias only affects keys, not queries (per paper)
+        assert torch.allclose(q1, q2), "Queries should not change with phase bias"
+        assert not torch.allclose(k1, k2), "Keys should change with phase bias"
 
 
 class TestRoPE:
