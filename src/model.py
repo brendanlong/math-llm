@@ -27,7 +27,11 @@ def softmax1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
     Formula: softmax1(x)_i = exp(x_i) / (1 + Σ_j exp(x_j))
 
     This modification adds an implicit "zero" option that attention heads can use
-    when they have no meaningful information to contribute.
+    when they have no meaningful information to contribute. When all inputs are
+    very negative, the output weights approach zero (abstention).
+
+    Reference: "Attention Is Off By One" by Evan Miller
+    https://www.evanmiller.org/attention-is-off-by-one.html
 
     Args:
         x: Input tensor
@@ -36,8 +40,12 @@ def softmax1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
     Returns:
         Tensor with same shape as input, values sum to less than 1
     """
-    exp_x = torch.exp(x - x.max(dim=dim, keepdim=True).values)
-    return exp_x / (1.0 + exp_x.sum(dim=dim, keepdim=True))
+    # For numerical stability, subtract max before exp (standard softmax trick).
+    # The "+1" in the denominator becomes "+exp(-max)" after this transformation
+    # to maintain mathematical equivalence.
+    max_val = x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x - max_val)
+    return exp_x / (torch.exp(-max_val) + exp_x.sum(dim=dim, keepdim=True))
 
 
 class PoPE(nn.Module):

@@ -41,19 +41,42 @@ class TestSoftmax1:
         expected_ratios = torch.exp(torch.tensor([1.0, 1.0]))
         assert torch.allclose(ratios, expected_ratios, rtol=1e-5)
 
-    def test_escape_hatch_behavior(self) -> None:
-        """When all inputs are equal, the +1 reduces each output.
+    def test_abstention_behavior(self) -> None:
+        """When all inputs are very negative, softmax1 allows abstention.
 
-        With standard softmax on [-100, -100, -100], each gets 1/3.
-        With softmax1, the +1 in denominator makes each get exp(0)/(1+3*exp(0)) = 0.25.
-        This demonstrates the "escape hatch" - the sum is less than 1.
+        This is the key feature: when all attention scores are very negative,
+        the model can effectively output near-zero weights (abstain from attending).
+
+        With standard softmax on [-100, -100, -100], each gets 1/3 (forced choice).
+        With softmax1, the +1 in denominator dominates, so sum approaches 0.
         """
         x = torch.tensor([[-100.0, -100.0, -100.0]])
         result = softmax1(x, dim=-1)
-        # Each element should be approximately 0.25 (1/4)
-        assert torch.allclose(result, torch.tensor([[0.25, 0.25, 0.25]]), atol=1e-6)
-        # Sum should be 0.75, less than 1
-        assert torch.isclose(result.sum(), torch.tensor(0.75), atol=1e-6)
+
+        # Each element should be very small (close to exp(-100))
+        assert (result < 1e-10).all(), "Weights should be near zero for abstention"
+
+        # Sum should be very close to 0 (abstention works)
+        assert result.sum() < 1e-10, "Sum should be near zero for abstention"
+
+    def test_normal_behavior(self) -> None:
+        """When inputs are in normal range, softmax1 behaves like softmax.
+
+        With reasonable input values, the +1 in denominator has minimal effect
+        and softmax1 behaves similarly to standard softmax.
+        """
+        x = torch.tensor([[1.0, 2.0, 3.0]])
+        result = softmax1(x, dim=-1)
+
+        # Standard softmax would give approximately [0.09, 0.24, 0.67]
+        # softmax1 should be similar but sum to slightly less than 1
+        standard_softmax = torch.softmax(x, dim=-1)
+
+        # Results should be very close to standard softmax for positive values
+        assert torch.allclose(result, standard_softmax, atol=0.05)
+
+        # But sum should be less than 1
+        assert result.sum() < 1.0
 
     def test_gradient_flow(self) -> None:
         """Softmax1 should allow gradient flow."""
