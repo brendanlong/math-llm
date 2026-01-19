@@ -21,6 +21,22 @@ from src.model import Model
 from src.tokenizer import END_TOKEN_ID, tokenizer
 from src.utils import get_device, load_model, setup_logging
 
+BEGIN_TOKEN = "<begin>"
+
+
+def ensure_begin_token(text: str) -> str:
+    """Prepend <begin> token to text if not already present.
+
+    Args:
+        text: Input text
+
+    Returns:
+        Text with <begin> token prepended if not already present
+    """
+    if not text.startswith(BEGIN_TOKEN):
+        return BEGIN_TOKEN + text
+    return text
+
 
 def greedy_generate_with_probs(
     model: Model,
@@ -347,8 +363,8 @@ def interactive_session_with_probabilities(
             if not user_input:
                 continue
 
-            # Start with user input
-            current_text = user_input
+            # Start with user input, ensuring <begin> token is present
+            current_text = ensure_begin_token(user_input)
             token_count = 0
 
             # Interactive generation loop
@@ -463,9 +479,12 @@ def interactive_session(
             if not user_input:
                 continue
 
+            # Ensure <begin> token is present
+            input_text = ensure_begin_token(user_input)
+
             # Encode input
             try:
-                input_ids = tokenizer.encode(user_input)
+                input_ids = tokenizer.encode(input_text)
                 input_tensor = torch.tensor(
                     input_ids, dtype=torch.long, device=device
                 ).unsqueeze(0)
@@ -474,7 +493,7 @@ def interactive_session(
                 continue
 
             # Generate completion
-            print(f"\U0001f4ad Generating completion for: {user_input}")
+            print(f"\U0001f4ad Generating completion for: {input_text}")
 
             with torch.no_grad():
                 initial_length = input_tensor.size(1)
@@ -503,7 +522,7 @@ def interactive_session(
                 print("\u2728 Model output: ", end="")
 
                 # Print input without background
-                print(user_input, end="")
+                print(input_text, end="")
 
                 # Get the generated tokens (after the input)
                 generated_token_ids = generated_ids[0, initial_length:].cpu().tolist()

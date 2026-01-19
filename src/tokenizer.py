@@ -68,6 +68,7 @@ TOKEN_PATTERN = r"<begin>|</think>|<think>|<noop>|<end>|[0-9+=]"
 # Constants derived from vocabulary
 VOCAB_SIZE = len(VOCAB)
 END_TOKEN_ID = VOCAB["<end>"]
+BEGIN_TOKEN_ID = VOCAB["<begin>"]
 THINK_TOKEN_ID = VOCAB["<think>"]
 END_THINK_TOKEN_ID = VOCAB["</think>"]
 EQUALS_TOKEN_ID = VOCAB["="]

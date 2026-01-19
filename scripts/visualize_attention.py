@@ -19,6 +19,22 @@ from src.config import load_config
 from src.model import BaseModel, FeedbackTransformerModel, create_model_from_config
 from src.tokenizer import tokenizer
 
+BEGIN_TOKEN = "<begin>"
+
+
+def ensure_begin_token(text: str) -> str:
+    """Prepend <begin> token to text if not already present.
+
+    Args:
+        text: Input text
+
+    Returns:
+        Text with <begin> token prepended if not already present
+    """
+    if not text.startswith(BEGIN_TOKEN):
+        return BEGIN_TOKEN + text
+    return text
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -125,6 +141,7 @@ def get_attention_weights(
     Returns:
         Tuple of (attention_weights, tokens)
     """
+    input_text = ensure_begin_token(input_text)
     token_ids = tokenizer.encode(input_text)
     inputs = torch.tensor([token_ids], dtype=torch.long, device=device)
     tokens_result = tokenizer.convert_ids_to_tokens(token_ids)
@@ -160,6 +177,7 @@ def generate_and_get_attention(
     Returns:
         Tuple of (attention_weights, tokens, generated_text)
     """
+    input_text = ensure_begin_token(input_text)
     input_token_ids = tokenizer.encode(input_text)
     inputs = torch.tensor([input_token_ids], dtype=torch.long, device=device)
 
