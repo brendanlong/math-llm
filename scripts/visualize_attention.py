@@ -208,6 +208,50 @@ def generate_and_get_attention(
         )
 
 
+def shift_tokens_for_autoregressive_view(html_content: str, tokens: list[str]) -> str:
+    """Shift left_text tokens to align predictions with attention patterns.
+
+    In autoregressive models, attention at position i is used to predict token i+1.
+    This function modifies the HTML so that clicking on a token in the left column
+    shows the attention pattern that was used to predict that token.
+
+    The last row is excluded because it shows attention from the final token,
+    which wasn't used to predict anything in our sequence.
+
+    Args:
+        html_content: The HTML content from BertViz head_view
+        tokens: The truncated token list (should already have last token removed)
+
+    Returns:
+        Modified HTML with shifted left_text tokens
+    """
+    import json
+    import re
+
+    # Left column: predicted tokens (tokens[1:] from original, but we receive truncated)
+    # tokens is already truncated (missing last token), so tokens[1:] gives us
+    # the predictions for positions 0 through n-2
+    left_tokens = tokens[1:]
+
+    # Right column: input tokens at each position (excluding last position)
+    # tokens[:-1] gives us positions 0 through n-2
+    right_tokens = tokens[:-1]
+
+    # Escape tokens for JSON
+    left_json = json.dumps(left_tokens)
+    right_json = json.dumps(right_tokens)
+
+    # Replace the left_text and right_text in the params
+    replacement = f'"left_text": {left_json}, "right_text": {right_json}'
+
+    # Match the left_text and right_text JSON arrays
+    # Use a lambda to avoid re.sub interpreting backslashes in the replacement
+    pattern = r'"left_text":\s*\[[^\]]*\],\s*"right_text":\s*\[[^\]]*\]'
+    modified_html = re.sub(pattern, lambda _: replacement, html_content)
+
+    return modified_html
+
+
 def main() -> None:
     """Main entry point."""
     args = parse_args()
@@ -250,11 +294,23 @@ def main() -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         if args.view in ("head", "both"):
-            html_head = head_view(attention, tokens, html_action="return")
+            # Truncate attention to exclude the last position (attention from final
+            # token which wasn't used to predict anything in our sequence)
+            # Shape: (batch, heads, seq_len, seq_len) -> (batch, heads, n-1, n-1)
+            truncated_attention = tuple(attn[:, :, :-1, :-1] for attn in attention)
+            truncated_tokens = tokens[:-1]
+
+            html_head = head_view(
+                truncated_attention, truncated_tokens, html_action="return"
+            )
             if html_head is not None and html_head.data is not None:
+                # Shift left tokens to show prediction alignment
+                html_content = shift_tokens_for_autoregressive_view(
+                    str(html_head.data), tokens
+                )
                 head_path = output_dir / "attention_head_view.html"
                 with open(head_path, "w") as f:
-                    f.write(str(html_head.data))
+                    f.write(html_content)
                 print(f"\nSaved head view to: {head_path}")
 
         if args.view in ("model", "both"):
