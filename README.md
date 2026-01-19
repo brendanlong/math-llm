@@ -18,6 +18,13 @@ The current CoT looks like this:
 ✅ Answer: 99+21=110
 ```
 
+## Features
+
+- **Multiple architectures**: Standard transformer, Universal Transformer (weight sharing), Feedback Transformer
+- **Positional encodings**: Learned, Sinusoidal, RoPE (Rotary), PoPE (Polar)
+- **Attention variants**: Standard softmax, softmax1 (quiet attention with abstention)
+- **Attention visualization**: Export attention weights for analysis with BertViz/Ecco
+
 ## Quick Start
 
 ```bash
@@ -44,24 +51,29 @@ python scripts/interactive.py --checkpoint checkpoints/model.safetensors
 
 ```text
 math-llm/
-├── config/                # Model configuration YAML files
-│   ├── standard-small.yaml
-│   ├── standard-medium.yaml
-│   ├── universal-small.yaml
-│   └── ...
+├── config/                    # Model configuration YAML files
+│   ├── standard-small.yaml    # Base config with learned positional encoding
+│   ├── standard-small-sinusoidal.yaml
+│   ├── standard-small-rope.yaml
+│   ├── standard-small-pope.yaml
+│   ├── standard-small-softmax1.yaml
+│   ├── standard-small-pope-softmax1.yaml
+│   ├── universal-small.yaml   # Universal Transformer (weight sharing)
+│   ├── feedback-small.yaml    # Feedback Transformer
+│   └── ...                    # medium/large variants
 ├── scripts/
-│   ├── generate_data.py    # Data generation
-│   ├── train.py           # Training script
-│   ├── evaluate.py        # Evaluation script
-│   └── interactive.py     # Interactive inference
+│   ├── generate_data.py       # Data generation
+│   ├── train.py               # Training script
+│   ├── evaluate.py            # Evaluation script
+│   └── interactive.py         # Interactive inference
 ├── src/
-│   ├── config.py          # Configuration loading
-│   ├── model.py           # Model architecture
-│   ├── tokenizer.py       # Custom tokenizer
-│   └── data.py            # Data loading utilities
-├── data/                  # Generated datasets
-├── checkpoints/           # Model checkpoints
-└── logs/                  # Training logs
+│   ├── config.py              # Configuration loading
+│   ├── model.py               # Model architectures
+│   ├── tokenizer.py           # Custom tokenizer
+│   └── data.py                # Data loading utilities
+├── data/                      # Generated datasets
+├── checkpoints/               # Model checkpoints
+└── logs/                      # Training logs
 ```
 
 ## Usage
@@ -289,6 +301,44 @@ The interactive script accepts various input formats:
   - With reasoning: `"658+189=<think>8+9=17 5+8+1=14 6+1+1=8</think>847<end>"`
   - Reversed: `"8+21=02<end>"` (digits reversed for easier left-to-right processing)
 
+### Positional Encodings
+
+| Type | Description | Config Value |
+|------|-------------|--------------|
+| **Learned** | Trainable position embeddings (default) | `learned` |
+| **Sinusoidal** | Fixed sin/cos embeddings from "Attention is All You Need" | `sinusoidal` |
+| **RoPE** | Rotary Position Embeddings - rotates Q/K based on position | `rope` |
+| **PoPE** | Polar Position Embeddings - separates magnitude (content) from phase (position) | `pope` |
+
+### Softmax Variants
+
+| Variant | Description | Config Value |
+|---------|-------------|--------------|
+| **Standard** | Traditional softmax attention | `standard` |
+| **Softmax1** | Adds +1 to denominator, allowing attention heads to "abstain" when they have no useful information | `softmax1` |
+
+Softmax1 implements "Quiet Attention" from Evan Miller's "[Attention Is Off By One](https://www.evanmiller.org/attention-is-off-by-one.html)".
+
+### Attention Visualization
+
+Models support returning attention weights for visualization with tools like BertViz or Ecco:
+
+```python
+from src.model import create_model_from_config
+from src.config import load_config
+
+config = load_config("config/standard-small.yaml")
+model = create_model_from_config(config)
+
+# Get attention weights
+result = model(input_ids, labels=labels, output_attentions=True)
+attentions = result["attentions"]  # tuple of (batch, heads, seq, seq) per layer
+
+# Each tensor shows what each position attends to
+for layer_idx, attn in enumerate(attentions):
+    print(f"Layer {layer_idx}: {attn.shape}")
+```
+
 ## Hardware Requirements
 
 - **GPU**: CUDA-capable (tested on RTX3060 with 12GB VRAM)
@@ -306,6 +356,21 @@ Training progress is logged to Weights & Biases. Key metrics:
 
 ## Results
 
-Results will be documented here as training progresses.
+### Positional Encoding Comparison (standard-small, 5 epochs)
+
+| Model | Positional Encoding | Softmax | Token Accuracy |
+|-------|---------------------|---------|----------------|
+| standard-small-pope | PoPE | standard | **99.93%** |
+| standard-small-sinusoidal | sinusoidal | standard | 99.92% |
+| standard-small-rope | RoPE | standard | 99.90% |
+| standard-small-pope-softmax1 | PoPE | softmax1 | 99.85% |
+| standard-small | learned | standard | 92.54% |
+| standard-small-softmax1 | learned | softmax1 | 92.55% |
+
+**Key findings:**
+
+- All positional encodings (sinusoidal, RoPE, PoPE) dramatically outperform learned embeddings on this task
+- PoPE, sinusoidal, and RoPE perform essentially identically (~99.9%)
+- The softmax1 variant doesn't significantly impact accuracy on this task
 
 See [DESIGN.md](DESIGN.md) for architectural details and design decisions.
