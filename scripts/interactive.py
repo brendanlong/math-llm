@@ -16,7 +16,7 @@ from typing import Literal, Optional
 import torch
 import torch.nn.functional as F
 
-from src.config import find_config_in_checkpoint
+from src.config import find_checkpoint_in_output_dir, find_config_in_checkpoint
 from src.model import Model
 from src.tokenizer import END_TOKEN_ID, tokenizer
 from src.utils import get_device, load_model, setup_logging
@@ -556,16 +556,16 @@ def main() -> None:
 
     # Model arguments
     parser.add_argument(
-        "--checkpoint",
+        "--output-dir",
         type=Path,
         required=True,
-        help="Path to model checkpoint file",
+        help="Path to output directory containing model checkpoint and config",
     )
     parser.add_argument(
         "--config",
         type=Path,
         default=None,
-        help="Path to model configuration YAML file (auto-detected from checkpoint dir if not specified)",
+        help="Path to model configuration YAML file (auto-detected from output dir if not specified)",
     )
 
     # Generation arguments
@@ -602,28 +602,38 @@ def main() -> None:
     device = get_device(args.device)
     logging.info(f"Using device: {device}")
 
-    # Check checkpoint exists
-    if not args.checkpoint.exists():
-        logging.error(f"Checkpoint file not found: {args.checkpoint}")
+    # Check output directory exists
+    if not args.output_dir.exists():
+        logging.error(f"Output directory not found: {args.output_dir}")
         sys.exit(1)
+
+    # Find checkpoint file in output directory
+    checkpoint_path = find_checkpoint_in_output_dir(args.output_dir)
+    if checkpoint_path is None:
+        logging.error(
+            f"No checkpoint file found in {args.output_dir}. "
+            "Expected model.safetensors or pytorch_model.bin."
+        )
+        sys.exit(1)
+    logging.info(f"Found checkpoint: {checkpoint_path}")
 
     # Find or use provided config
     if args.config is not None:
         config_path = args.config
     else:
-        config_path = find_config_in_checkpoint(args.checkpoint)
+        config_path = find_config_in_checkpoint(args.output_dir)
         if config_path is None:
             logging.error(
-                "No model_config.yaml found in checkpoint directory. "
+                "No model_config.yaml found in output directory. "
                 "Please specify --config path."
             )
             sys.exit(1)
         logging.info(f"Auto-detected config: {config_path}")
 
     # Load model
-    logging.info(f"Loading model from {args.checkpoint} with config {config_path}")
+    logging.info(f"Loading model from {checkpoint_path} with config {config_path}")
     try:
-        model = load_model(args.checkpoint, config_path)
+        model = load_model(checkpoint_path, config_path)
         model.to(device)
         logging.info(
             f"Model loaded successfully ({model.count_parameters():,} parameters)"

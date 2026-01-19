@@ -124,3 +124,29 @@ def find_config_in_checkpoint(checkpoint_path: Path) -> Optional[Path]:
         return parent_config
 
     return None
+
+
+def find_checkpoint_in_output_dir(output_dir: Path) -> Optional[Path]:
+    """Find model checkpoint file in an output directory.
+
+    Searches for checkpoint files in this order:
+    1. model.safetensors (preferred format)
+    2. pytorch_model.bin (legacy format)
+
+    Args:
+        output_dir: Path to the output/checkpoint directory
+
+    Returns:
+        Path to checkpoint file if found, None otherwise
+    """
+    # Check for safetensors format (preferred)
+    safetensors_path = output_dir / "model.safetensors"
+    if safetensors_path.exists():
+        return safetensors_path
+
+    # Check for PyTorch format (legacy)
+    pytorch_path = output_dir / "pytorch_model.bin"
+    if pytorch_path.exists():
+        return pytorch_path
+
+    return None
