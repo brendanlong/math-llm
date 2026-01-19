@@ -29,6 +29,7 @@ import wandb
 from src.config import load_config, save_config
 from src.data import ArithmeticDataset, load_splits
 from src.model import create_model_from_config
+from src.optimizers import create_optimizer
 from src.tokenizer import VOCAB_SIZE
 from src.training import (
     compute_metrics,
@@ -176,6 +177,13 @@ def main() -> None:
         action="store_true",
         help="Run one epoch with torch.profiler and save results",
     )
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        choices=["adamw", "adopt", "muon"],
+        default="adamw",
+        help="Optimizer to use: adamw (default), adopt, or muon",
+    )
 
     args = parser.parse_args()
 
@@ -238,6 +246,7 @@ def main() -> None:
                 "softmax_variant": model_config.softmax_variant,
                 "batch_size": args.batch_size,
                 "learning_rate": args.learning_rate,
+                "optimizer": args.optimizer,
                 "num_epochs": args.num_epochs,
                 "max_length": args.max_length,
                 "seed": args.seed,
@@ -307,6 +316,17 @@ def main() -> None:
         torch_compile=True,
     )
 
+    # Create optimizer (if not using default AdamW)
+    optimizer = None
+    if args.optimizer != "adamw":
+        optimizer = create_optimizer(
+            model=model,
+            optimizer_name=args.optimizer,
+            lr=args.learning_rate,
+            weight_decay=args.weight_decay,
+        )
+        logger.info(f"Using {args.optimizer.upper()} optimizer")
+
     # Create trainer
     trainer = Trainer(
         model=model,
@@ -315,6 +335,7 @@ def main() -> None:
         eval_dataset=val_loader.dataset,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
+        optimizers=(optimizer, None) if optimizer else (None, None),
     )
 
     # Save model configuration to output directory
@@ -329,6 +350,7 @@ def main() -> None:
         "model_parameters": model.count_parameters(),
         "vocab_size": VOCAB_SIZE,
         "max_length": args.max_length,
+        "optimizer": args.optimizer,
         "training_args": training_args.to_dict(),
     }
     if model_config.architecture == "universal":
