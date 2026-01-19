@@ -65,7 +65,10 @@ math-llm/
 │   ├── generate_data.py       # Data generation
 │   ├── train.py               # Training script
 │   ├── evaluate.py            # Evaluation script
-│   └── interactive.py         # Interactive inference
+│   ├── interactive.py         # Interactive inference
+│   └── visualize_attention.py # Attention visualization
+├── notebooks/
+│   └── attention_visualization.ipynb  # Interactive attention analysis
 ├── src/
 │   ├── config.py              # Configuration loading
 │   ├── model.py               # Model architectures
@@ -289,6 +292,32 @@ The interactive script accepts various input formats:
 - Only accepts digits (0-9), plus sign (+), and equals sign (=)
 - Provides helpful error messages for invalid input
 - Type 'quit' or 'exit' to end the session, or use Ctrl+C/Ctrl+D
+
+### Visualizing Attention with BertViz
+
+Visualize attention patterns from trained models using [BertViz](https://github.com/jessevig/bertviz).
+
+```bash
+# Generate HTML visualizations
+python scripts/visualize_attention.py --checkpoint checkpoints/standard-small-pope --output-dir viz/
+
+# With custom input expression
+python scripts/visualize_attention.py --checkpoint checkpoints/standard-small-pope --input "99+21=" --output-dir viz/
+
+# Generate completion first, then visualize attention on full sequence
+python scripts/visualize_attention.py --checkpoint checkpoints/standard-small-pope --input "99+21=" --generate --output-dir viz/
+```
+
+Opens the generated HTML files in a browser to see:
+
+- **Head View**: Detailed attention patterns for individual heads in each layer
+- **Model View**: Bird's-eye view of attention across all layers and heads
+
+For interactive exploration, use the Jupyter notebook:
+
+```bash
+jupyter lab notebooks/attention_visualization.ipynb
+```
 
 ## Model Details
 
