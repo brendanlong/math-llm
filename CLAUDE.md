@@ -14,11 +14,7 @@ Only add comments when code is non-obvious
 Don't catch exceptions unless you plan to handle them meaningfully
 Use `raise NewException(...) from e` instead of logging and re-raising
 
-## Common Type Issues
-
 - When pyright complains about PyTorch Dataset not being Sized, use `cast(Sized, dataset)` from typing
-- Prefer Optional[x] over x | Optional
-
-## Code Structure
-
+- Prefer Optional[x] over x | None
 - Don't do imports inside functions, always import at the top of the file
+- Use uv instead of pip
