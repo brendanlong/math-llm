@@ -18,3 +18,4 @@ Use `raise NewException(...) from e` instead of logging and re-raising
 - Prefer Optional[x] over x | None
 - Don't do imports inside functions, always import at the top of the file
 - Use uv instead of pip
+- When gh CLI is unavailable, use curl with $GITHUB_TOKEN for GitHub API calls
