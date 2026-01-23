@@ -40,7 +40,11 @@ def create_optimizer(
         return AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     elif optimizer_name == "adopt":
-        return ADOPT(model.parameters(), lr=lr, weight_decay=weight_decay)
+        # Use weight_decouple=True for AdamW-style decoupled weight decay
+        # as recommended by ADOPT authors when replacing AdamW
+        return ADOPT(
+            model.parameters(), lr=lr, weight_decay=weight_decay, weight_decouple=True
+        )
 
     elif optimizer_name == "muon":
         # Muon works best on 2D+ weight matrices
