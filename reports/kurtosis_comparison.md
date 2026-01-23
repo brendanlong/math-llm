@@ -13,7 +13,7 @@ This report compares how different model configurations affect the kurtosis of a
 
 **Note on ADOPT configuration**: ADOPT requires `weight_decouple=True` when using weight decay (to match AdamW behavior). The results below use the correctly configured ADOPT optimizer.
 
-## Summary Results
+## Summary Results (2-Digit Addition)
 
 | Model | Pos Encoding | Optimizer | Hidden Kurtosis | Hidden Max | FFN Kurtosis | FFN Max | Attn Entropy | Test Acc |
 |-------|--------------|-----------|---------------:|----------:|-------------:|--------:|-------------:|---------:|
@@ -30,9 +30,42 @@ This report compares how different model configurations affect the kurtosis of a
 | sinusoidal-adopt | sinusoidal | adopt | 0.76 | 7.82 | 4.04 | 17.33 | 0.48 | 96.19% |
 | sinusoidal-muon | sinusoidal | muon | 0.88 | 6.72 | 0.65 | 4.53 | 2.52 | 98.82% |
 
+## 5-Digit Addition: PoPE vs RoPE
+
+To test how positional encodings scale to harder problems, we trained models on 5-digit addition (50,000 examples, 3 epochs).
+
+| Pos Encoding | Optimizer | Test Acc | Test Loss | Hidden Kurtosis | FFN Kurtosis | Attn Entropy |
+|--------------|-----------|----------:|----------:|----------------:|-------------:|-------------:|
+| rope | adamw | **99.99%** | 0.0006 | 0.71 | 2.40 | 2.12 |
+| rope | adopt | 99.96% | 0.0019 | 4.18 | 3.98 | 1.10 |
+| pope | muon | 99.92% | 0.0032 | -0.07 | 0.73 | 2.53 |
+| pope | adopt | 99.77% | 0.0077 | 1.53 | 3.55 | 2.04 |
+| rope | muon | 97.30% | 0.0732 | -0.10 | 0.65 | 2.47 |
+| pope | adamw | 94.38% | 0.1502 | 0.72 | 3.36 | 2.37 |
+
+### 5-Digit Summary
+
+| Metric | RoPE | PoPE |
+|--------|-----:|-----:|
+| **Average Accuracy** | **99.08%** | 98.03% |
+| **Best Accuracy** | **99.99%** | 99.92% |
+| Best Optimizer | AdamW | Muon |
+
+**Key finding: RoPE outperforms PoPE on harder problems.** While PoPE achieved the best result on 2-digit addition, RoPE scales better to 5-digit addition, achieving near-perfect accuracy (99.99%) with AdamW.
+
+### Optimizer Performance on 5-Digit Addition
+
+| Optimizer | Avg Accuracy |
+|-----------|-------------:|
+| ADOPT | **99.87%** |
+| Muon | 98.61% |
+| AdamW | 97.19% |
+
+Interestingly, **ADOPT performs best on the harder task**, despite showing more variability on the easier 2-digit task. This suggests ADOPT may be better suited for more challenging optimization landscapes.
+
 ## Key Findings
 
-### 1. Optimizer Comparison
+### 1. Optimizer Comparison (2-Digit)
 
 With ADOPT correctly configured (`weight_decouple=True`), all three optimizers achieve comparable accuracy:
 
@@ -44,22 +77,18 @@ With ADOPT correctly configured (`weight_decouple=True`), all three optimizers a
 
 **Muon produces the lowest kurtosis** in both hidden states and FFN layers, suggesting the most uniform activation distributions.
 
-**ADOPT produces slightly higher kurtosis** than AdamW/Muon, and shows more variability across positional encodings (93-99% accuracy range vs 97-99% for others).
-
 ### 2. Muon Produces the Lowest FFN Kurtosis
 
-Muon consistently produces the **lowest FFN kurtosis** (0.44-0.65) across all positional encodings, while maintaining excellent accuracy (96.8-98.9%). Lower kurtosis suggests more uniform activation distributions without extreme outliers.
+Muon consistently produces the **lowest FFN kurtosis** (0.44-0.73) across all configurations, while maintaining excellent accuracy. Lower kurtosis suggests more uniform activation distributions without extreme outliers.
 
-### 3. Positional Encoding Effects
+### 3. Positional Encoding Effects Depend on Task Difficulty
 
-| Pos Encoding | Avg Hidden Kurtosis | Avg FFN Kurtosis | Best Accuracy |
-|--------------|--------------------:|-----------------:|-------------:|
-| PoPE | 0.05 | 1.67 | **99.42%** |
-| RoPE | 0.25 | 2.36 | 98.50% |
-| Learned | 0.72 | 1.45 | 98.89% |
-| Sinusoidal | 0.64 | 2.18 | 98.82% |
+| Task | Best Pos Encoding | Best Accuracy |
+|------|-------------------|-------------:|
+| 2-digit addition | PoPE | 99.42% |
+| 5-digit addition | RoPE | 99.99% |
 
-**PoPE achieves the best overall accuracy** (99.42% with ADOPT) while maintaining low hidden kurtosis. The combination of PoPE + ADOPT produced the single best result in this study.
+**RoPE scales better to harder problems**, while PoPE performs slightly better on simpler tasks.
 
 ### 4. Attention Entropy Patterns
 
@@ -80,16 +109,16 @@ ADOPT requires careful configuration when replacing AdamW:
 | `weight_decouple=False` (incorrect) | 75-88% | 114-270 |
 | `weight_decouple=True` (correct) | 93-99% | 2.5-4.4 |
 
-When using weight decay with ADOPT, you **must** set `weight_decouple=True` to get AdamW-compatible behavior. Without this, ADOPT fails to converge properly and produces extremely high kurtosis values.
+When using weight decay with ADOPT, you **must** set `weight_decouple=True` to get AdamW-compatible behavior.
 
 ## Conclusions
 
-1. **All three optimizers work well when properly configured**, with test accuracies in the 96-99% range
+1. **All three optimizers work well when properly configured**, with test accuracies in the 93-99%+ range
 2. **Muon produces the healthiest activation distributions** with consistently low kurtosis values
 3. **ADOPT requires `weight_decouple=True`** when using weight decay; without it, training diverges
-4. **ADOPT shows more sensitivity to positional encoding choice** (wider accuracy range) than AdamW or Muon
-5. **PoPE positional encoding** achieved the best single result (99.42% with ADOPT)
-6. **PoPE and RoPE are comparable** - neither consistently outperforms the other across all optimizers
+4. **RoPE scales better to harder problems** (5-digit: 99.99%) while PoPE excels on simpler tasks (2-digit: 99.42%)
+5. **ADOPT performs best on harder tasks** (5-digit avg: 99.87%) despite more variability on easier tasks
+6. **Optimizer-positional encoding interactions matter**: The best combination depends on task difficulty
 
 ## Methodology Notes
 
@@ -98,3 +127,5 @@ When using weight decay with ADOPT, you **must** set `weight_decouple=True` to g
 - Hidden kurtosis averaged across all 4 layers
 - FFN kurtosis measured at intermediate layer (after first linear + activation)
 - ADOPT configured with `weight_decouple=True` for proper weight decay handling
+- 2-digit study: 20,000 examples, 2 epochs
+- 5-digit study: 50,000 examples, 3 epochs
