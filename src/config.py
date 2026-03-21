@@ -36,6 +36,10 @@ class ModelConfig(BaseModel):
         default="standard",
         description="Softmax variant: standard or softmax1 (+1 in denominator)",
     )
+    layer_norm_type: Literal["pre", "post"] = Field(
+        default="post",
+        description="Layer norm placement: pre-LN (norm before sublayer) or post-LN (norm after residual add)",
+    )
 
     # Universal transformer specific
     n_loops: Optional[int] = Field(

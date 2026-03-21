@@ -326,6 +326,7 @@ class TransformerBlock(nn.Module):
         dropout: float = 0.1,
         positional_encoding: str = "learned",
         softmax_variant: str = "standard",
+        layer_norm_type: str = "post",
     ):
         """Initialize transformer block.
 
@@ -336,6 +337,7 @@ class TransformerBlock(nn.Module):
             dropout: Dropout probability
             positional_encoding: "learned", "sinusoidal", "pope", or "rope"
             softmax_variant: "standard" or "softmax1"
+            layer_norm_type: "pre" (norm before sublayer) or "post" (norm after residual add)
         """
         super().__init__()
 
@@ -344,6 +346,7 @@ class TransformerBlock(nn.Module):
         self.head_dim = d_model // n_heads
         self.positional_encoding = positional_encoding
         self.softmax_variant = softmax_variant
+        self.layer_norm_type = layer_norm_type
 
         # Use separate linear layers for Q, K, V to have more control
         self.q_proj = nn.Linear(d_model, d_model)
@@ -455,19 +458,25 @@ class TransformerBlock(nn.Module):
         """
         batch_size, seq_len, _ = x.shape
 
+        # Pre-LN: normalize before attention sublayer
+        if self.layer_norm_type == "pre":
+            normed = self.norm1(x)
+        else:
+            normed = x
+
         # Compute Q, K, V
         q = (
-            self.q_proj(x)
+            self.q_proj(normed)
             .reshape(batch_size, seq_len, self.n_heads, self.head_dim)
             .transpose(1, 2)
         )
         k = (
-            self.k_proj(x)
+            self.k_proj(normed)
             .reshape(batch_size, seq_len, self.n_heads, self.head_dim)
             .transpose(1, 2)
         )
         v = (
-            self.v_proj(x)
+            self.v_proj(normed)
             .reshape(batch_size, seq_len, self.n_heads, self.head_dim)
             .transpose(1, 2)
         )
@@ -518,12 +527,20 @@ class TransformerBlock(nn.Module):
         attn_out = attn_out.transpose(1, 2).reshape(batch_size, seq_len, self.d_model)
         attn_out = self.out_proj(attn_out)
 
-        # Residual connection and layer norm
-        x = self.norm1(x + self.dropout(attn_out))
+        if self.layer_norm_type == "pre":
+            # Pre-LN: clean residual stream, norm was applied before sublayer
+            x = x + self.dropout(attn_out)
 
-        # Feed-forward with residual connection
-        ff_out = self.feed_forward(x)
-        x = self.norm2(x + self.dropout(ff_out))
+            # Feed-forward with pre-norm
+            ff_out = self.feed_forward(self.norm2(x))
+            x = x + self.dropout(ff_out)
+        else:
+            # Post-LN: norm after residual add (original behavior)
+            x = self.norm1(x + self.dropout(attn_out))
+
+            # Feed-forward with residual connection
+            ff_out = self.feed_forward(x)
+            x = self.norm2(x + self.dropout(ff_out))
 
         return x, attn_weights, attn_scores
 
@@ -677,6 +694,7 @@ class ArithmeticModel(BaseModel):
         dropout: float = 0.1,
         positional_encoding: str = "learned",
         softmax_variant: str = "standard",
+        layer_norm_type: str = "post",
     ):
         """Initialize the arithmetic model.
 
@@ -690,6 +708,7 @@ class ArithmeticModel(BaseModel):
             dropout: Dropout probability
             positional_encoding: "learned", "sinusoidal", "pope", or "rope"
             softmax_variant: "standard" or "softmax1" (+1 in denominator)
+            layer_norm_type: "pre" (norm before sublayer) or "post" (norm after residual add)
         """
         super().__init__()
 
@@ -698,6 +717,7 @@ class ArithmeticModel(BaseModel):
         self.n_heads = n_heads
         self.positional_encoding = positional_encoding
         self.softmax_variant = softmax_variant
+        self.layer_norm_type = layer_norm_type
         self._embed_scale = math.sqrt(d_model)
 
         # Embedding layers
@@ -719,6 +739,7 @@ class ArithmeticModel(BaseModel):
                     dropout,
                     positional_encoding=positional_encoding,
                     softmax_variant=softmax_variant,
+                    layer_norm_type=layer_norm_type,
                 )
                 for _ in range(n_layers)
             ]
@@ -828,6 +849,7 @@ class UniversalTransformerModel(BaseModel):
         use_loop_embeddings: bool = True,
         positional_encoding: str = "learned",
         softmax_variant: str = "standard",
+        layer_norm_type: str = "post",
     ):
         """Initialize the Universal Transformer model.
 
@@ -843,6 +865,7 @@ class UniversalTransformerModel(BaseModel):
             use_loop_embeddings: Whether to add learnable loop position embeddings
             positional_encoding: "learned", "sinusoidal", "pope", or "rope"
             softmax_variant: "standard" or "softmax1" (+1 in denominator)
+            layer_norm_type: "pre" (norm before sublayer) or "post" (norm after residual add)
         """
         super().__init__()
 
@@ -854,6 +877,7 @@ class UniversalTransformerModel(BaseModel):
         self.use_loop_embeddings = use_loop_embeddings
         self.positional_encoding = positional_encoding
         self.softmax_variant = softmax_variant
+        self.layer_norm_type = layer_norm_type
         self._embed_scale = math.sqrt(d_model)
 
         # Embedding layers
@@ -879,6 +903,7 @@ class UniversalTransformerModel(BaseModel):
                     dropout,
                     positional_encoding=positional_encoding,
                     softmax_variant=softmax_variant,
+                    layer_norm_type=layer_norm_type,
                 )
                 for _ in range(n_layers)
             ]
@@ -989,6 +1014,7 @@ class FeedbackTransformerBlock(nn.Module):
         d_ff: int,
         dropout: float = 0.1,
         softmax_variant: str = "standard",
+        layer_norm_type: str = "post",
     ):
         """Initialize feedback transformer block.
 
@@ -998,6 +1024,7 @@ class FeedbackTransformerBlock(nn.Module):
             d_ff: Feed-forward dimension
             dropout: Dropout probability
             softmax_variant: "standard" or "softmax1"
+            layer_norm_type: "pre" (norm before sublayer) or "post" (norm after residual add)
         """
         super().__init__()
 
@@ -1005,6 +1032,7 @@ class FeedbackTransformerBlock(nn.Module):
         self.d_model = d_model
         self.head_dim = d_model // n_heads
         self.softmax_variant = softmax_variant
+        self.layer_norm_type = layer_norm_type
 
         # Only Q projection is per-layer; K/V are shared and passed in
         self.q_proj = nn.Linear(d_model, d_model)
@@ -1070,9 +1098,15 @@ class FeedbackTransformerBlock(nn.Module):
         batch_size = x.shape[0]
         mem_len = memory_keys.shape[1]
 
+        # Pre-LN: normalize before attention sublayer
+        if self.layer_norm_type == "pre":
+            normed = self.norm1(x)
+        else:
+            normed = x
+
         # Compute Q from current input: (batch_size, 1, n_heads, head_dim)
         q = (
-            self.q_proj(x)
+            self.q_proj(normed)
             .reshape(batch_size, 1, self.n_heads, self.head_dim)
             .transpose(1, 2)
         )  # (batch_size, n_heads, 1, head_dim)
@@ -1101,12 +1135,20 @@ class FeedbackTransformerBlock(nn.Module):
         attn_out = attn_out.transpose(1, 2).reshape(batch_size, self.d_model)
         attn_out = self.out_proj(attn_out)
 
-        # Residual connection and layer norm
-        x = self.norm1(x + self.dropout(attn_out))
+        if self.layer_norm_type == "pre":
+            # Pre-LN: clean residual stream
+            x = x + self.dropout(attn_out)
 
-        # Feed-forward with residual connection
-        ff_out = self.feed_forward(x)
-        x = self.norm2(x + self.dropout(ff_out))
+            # Feed-forward with pre-norm
+            ff_out = self.feed_forward(self.norm2(x))
+            x = x + self.dropout(ff_out)
+        else:
+            # Post-LN: norm after residual add (original behavior)
+            x = self.norm1(x + self.dropout(attn_out))
+
+            # Feed-forward with residual connection
+            ff_out = self.feed_forward(x)
+            x = self.norm2(x + self.dropout(ff_out))
 
         return x
 
@@ -1143,6 +1185,7 @@ class FeedbackTransformerModel(BaseModel):
         dropout: float = 0.1,
         positional_encoding: str = "learned",
         softmax_variant: str = "standard",
+        layer_norm_type: str = "post",
     ):
         """Initialize the Feedback Transformer model.
 
@@ -1156,6 +1199,7 @@ class FeedbackTransformerModel(BaseModel):
             dropout: Dropout probability
             positional_encoding: "learned" or "sinusoidal" (pope/rope not supported)
             softmax_variant: "standard" or "softmax1" (+1 in denominator)
+            layer_norm_type: "pre" (norm before sublayer) or "post" (norm after residual add)
 
         Raises:
             ValueError: If positional_encoding is "pope" or "rope" (not supported)
@@ -1174,6 +1218,7 @@ class FeedbackTransformerModel(BaseModel):
         self.n_heads = n_heads
         self.positional_encoding = positional_encoding
         self.softmax_variant = softmax_variant
+        self.layer_norm_type = layer_norm_type
         self._embed_scale = math.sqrt(d_model)
 
         # Embedding layers
@@ -1196,7 +1241,12 @@ class FeedbackTransformerModel(BaseModel):
         self.layers = nn.ModuleList(
             [
                 FeedbackTransformerBlock(
-                    d_model, n_heads, d_ff, dropout, softmax_variant=softmax_variant
+                    d_model,
+                    n_heads,
+                    d_ff,
+                    dropout,
+                    softmax_variant=softmax_variant,
+                    layer_norm_type=layer_norm_type,
                 )
                 for _ in range(n_layers)
             ]
@@ -1279,8 +1329,12 @@ class FeedbackTransformerModel(BaseModel):
                     fb_layer: FeedbackTransformerBlock = layer  # type: ignore[assignment]
                     # For first position, do a simplified forward without attention
                     # Just apply feed-forward with residuals
-                    ff_out = fb_layer.feed_forward(x)
-                    x = fb_layer.norm2(x + fb_layer.dropout(ff_out))
+                    if fb_layer.layer_norm_type == "pre":
+                        ff_out = fb_layer.feed_forward(fb_layer.norm2(x))
+                        x = x + fb_layer.dropout(ff_out)
+                    else:
+                        ff_out = fb_layer.feed_forward(x)
+                        x = fb_layer.norm2(x + fb_layer.dropout(ff_out))
                     layer_outputs.append(x)
 
             # Compute memory vector as weighted sum of all layer outputs
@@ -1336,6 +1390,7 @@ def create_model_from_config(config: ModelConfig) -> Model:
             dropout=config.dropout,
             positional_encoding=config.positional_encoding,
             softmax_variant=config.softmax_variant,
+            layer_norm_type=config.layer_norm_type,
         )
     elif config.architecture == "universal":
         if config.n_loops is None:
@@ -1350,6 +1405,7 @@ def create_model_from_config(config: ModelConfig) -> Model:
             use_loop_embeddings=config.use_loop_embeddings,
             positional_encoding=config.positional_encoding,
             softmax_variant=config.softmax_variant,
+            layer_norm_type=config.layer_norm_type,
         )
     elif config.architecture == "feedback":
         return FeedbackTransformerModel(
@@ -1360,6 +1416,7 @@ def create_model_from_config(config: ModelConfig) -> Model:
             dropout=config.dropout,
             positional_encoding=config.positional_encoding,
             softmax_variant=config.softmax_variant,
+            layer_norm_type=config.layer_norm_type,
         )
     else:
         raise ValueError(f"Unknown architecture: {config.architecture}")
