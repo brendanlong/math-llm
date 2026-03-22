@@ -1,0 +1,8 @@
+architecture: standard
+d_model: 256
+n_layers: 2
+n_heads: 8
+d_ff: 512
+dropout: 0.1
+positional_encoding: rope
+layer_norm_type: pre

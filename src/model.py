@@ -718,7 +718,7 @@ class ArithmeticModel(BaseModel):
         self.positional_encoding = positional_encoding
         self.softmax_variant = softmax_variant
         self.layer_norm_type = layer_norm_type
-        self._embed_scale = math.sqrt(d_model)
+        self.embed_scale = math.sqrt(d_model)
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
@@ -775,7 +775,7 @@ class ArithmeticModel(BaseModel):
 
         # Token embeddings with scaling
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        x.mul_(self._embed_scale)
+        x.mul_(self.embed_scale)
 
         # Position indices for attention-level encoding (pope/rope)
         positions = torch.arange(seq_len, device=input_ids.device)
@@ -878,7 +878,7 @@ class UniversalTransformerModel(BaseModel):
         self.positional_encoding = positional_encoding
         self.softmax_variant = softmax_variant
         self.layer_norm_type = layer_norm_type
-        self._embed_scale = math.sqrt(d_model)
+        self.embed_scale = math.sqrt(d_model)
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
@@ -939,7 +939,7 @@ class UniversalTransformerModel(BaseModel):
 
         # Token embeddings with scaling
         x = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        x.mul_(self._embed_scale)
+        x.mul_(self.embed_scale)
 
         # Position indices for attention-level encoding (pope/rope)
         positions = torch.arange(seq_len, device=input_ids.device)
@@ -1219,7 +1219,7 @@ class FeedbackTransformerModel(BaseModel):
         self.positional_encoding = positional_encoding
         self.softmax_variant = softmax_variant
         self.layer_norm_type = layer_norm_type
-        self._embed_scale = math.sqrt(d_model)
+        self.embed_scale = math.sqrt(d_model)
 
         # Embedding layers
         self.token_embedding = nn.Embedding(vocab_size, d_model)
@@ -1289,7 +1289,7 @@ class FeedbackTransformerModel(BaseModel):
 
         # Token embeddings with scaling
         embeddings = self.token_embedding(input_ids)  # (batch_size, seq_len, d_model)
-        embeddings.mul_(self._embed_scale)
+        embeddings.mul_(self.embed_scale)
 
         # Add positional embeddings (learned or sinusoidal)
         if self.positional_encoding == "learned":
