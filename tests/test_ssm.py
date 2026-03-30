@@ -4,7 +4,7 @@ import torch
 
 from src.config import ModelConfig
 from src.model import create_model_from_config
-from src.ssm import MambaBlock, SSMModel, SelectiveSSM
+from src.ssm import MambaBlock, SelectiveSSM, SSMModel
 from src.tokenizer import VOCAB_SIZE, tokenizer
 
 SSM_SMALL_CONFIG = ModelConfig(

@@ -545,7 +545,7 @@ class TransformerBlock(nn.Module):
         return x, attn_weights, attn_scores
 
 
-def _init_weights(module: nn.Module) -> None:
+def init_weights(module: nn.Module) -> None:
     """Initialize model weights using standard transformer initialization.
 
     Args:
@@ -578,7 +578,7 @@ class BaseModel(nn.Module, ABC):
         # These will be set by subclasses
         self.d_model: int
         self.max_seq_len: int
-        self.n_heads: int
+        self.n_heads: Optional[int]
 
     @abstractmethod
     def forward(
@@ -750,7 +750,7 @@ class ArithmeticModel(BaseModel):
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
         # Initialize weights
-        self.apply(_init_weights)
+        self.apply(init_weights)
 
     def forward(
         self,
@@ -914,7 +914,7 @@ class UniversalTransformerModel(BaseModel):
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
         # Initialize weights
-        self.apply(_init_weights)
+        self.apply(init_weights)
 
     def forward(
         self,
@@ -1257,7 +1257,7 @@ class FeedbackTransformerModel(BaseModel):
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
         # Initialize weights
-        self.apply(_init_weights)
+        self.apply(init_weights)
 
     def forward(
         self,
