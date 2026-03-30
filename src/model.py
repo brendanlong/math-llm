@@ -18,7 +18,7 @@ from .tokenizer import END_TOKEN_ID, VOCAB_SIZE
 MAX_SEQUENCE_LENGTH = 1024
 
 # Architecture type literals for type safety
-ArchitectureType = Literal["standard", "universal", "feedback"]
+ArchitectureType = Literal["standard", "universal", "feedback", "ssm"]
 
 
 def softmax1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
@@ -1364,8 +1364,13 @@ class FeedbackTransformerModel(BaseModel):
         return logits
 
 
+# Import SSM model (defined in separate file due to different architecture)
+from .ssm import SSMModel, create_ssm_from_config  # noqa: E402
+
 # Type alias for any model type
-Model = ArithmeticModel | UniversalTransformerModel | FeedbackTransformerModel
+Model = (
+    ArithmeticModel | UniversalTransformerModel | FeedbackTransformerModel | SSMModel
+)
 
 
 def create_model_from_config(config: ModelConfig) -> Model:
@@ -1382,6 +1387,8 @@ def create_model_from_config(config: ModelConfig) -> Model:
         ValueError: If architecture is unknown or required parameters are missing
     """
     if config.architecture == "standard":
+        assert config.n_heads is not None
+        assert config.d_ff is not None
         return ArithmeticModel(
             d_model=config.d_model,
             n_layers=config.n_layers,
@@ -1395,6 +1402,8 @@ def create_model_from_config(config: ModelConfig) -> Model:
     elif config.architecture == "universal":
         if config.n_loops is None:
             raise ValueError("Universal transformer requires n_loops parameter")
+        assert config.n_heads is not None
+        assert config.d_ff is not None
         return UniversalTransformerModel(
             d_model=config.d_model,
             n_layers=config.n_layers,
@@ -1408,6 +1417,8 @@ def create_model_from_config(config: ModelConfig) -> Model:
             layer_norm_type=config.layer_norm_type,
         )
     elif config.architecture == "feedback":
+        assert config.n_heads is not None
+        assert config.d_ff is not None
         return FeedbackTransformerModel(
             d_model=config.d_model,
             n_layers=config.n_layers,
@@ -1418,5 +1429,7 @@ def create_model_from_config(config: ModelConfig) -> Model:
             softmax_variant=config.softmax_variant,
             layer_norm_type=config.layer_norm_type,
         )
+    elif config.architecture == "ssm":
+        return create_ssm_from_config(config)
     else:
         raise ValueError(f"Unknown architecture: {config.architecture}")

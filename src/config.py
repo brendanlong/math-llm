@@ -10,19 +10,26 @@ from pydantic import BaseModel, Field, model_validator
 class ModelConfig(BaseModel):
     """Configuration for model architecture.
 
-    Supports three transformer architectures:
+    Supports four architectures:
     - standard: Traditional transformer with N unique layers
     - universal: Weight-shared layers applied in loops
     - feedback: Layers attend to shared memory of all previous layer outputs
+    - ssm: Mamba-style selective state space model (no attention)
     """
 
-    architecture: Literal["standard", "universal", "feedback"] = "standard"
+    architecture: Literal["standard", "universal", "feedback", "ssm"] = "standard"
 
     # Core architecture parameters
     d_model: int = Field(gt=0, description="Model dimension")
-    n_layers: int = Field(gt=0, description="Number of transformer layers")
-    n_heads: int = Field(gt=0, description="Number of attention heads")
-    d_ff: int = Field(gt=0, description="Feed-forward dimension")
+    n_layers: int = Field(gt=0, description="Number of layers")
+    n_heads: Optional[int] = Field(
+        default=None, gt=0, description="Number of attention heads (not used by SSM)"
+    )
+    d_ff: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Feed-forward dimension (not used by SSM)",
+    )
     dropout: float = Field(
         ge=0.0, le=1.0, default=0.1, description="Dropout probability"
     )
@@ -52,11 +59,42 @@ class ModelConfig(BaseModel):
         description="Whether to use loop position embeddings (universal transformer)",
     )
 
+    # SSM specific
+    d_state: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="SSM state dimension (ssm architecture only, default: 16)",
+    )
+    d_conv: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="SSM convolution kernel size (ssm architecture only, default: 4)",
+    )
+    expand: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="SSM expansion factor for inner dimension (ssm architecture only, default: 2)",
+    )
+
     @model_validator(mode="after")
-    def validate_universal_config(self) -> "ModelConfig":
-        """Validate that universal transformer has required n_loops parameter."""
+    def validate_architecture_config(self) -> "ModelConfig":
+        """Validate architecture-specific parameters."""
         if self.architecture == "universal" and self.n_loops is None:
             raise ValueError("Universal transformer requires n_loops parameter")
+        if self.architecture == "ssm":
+            if self.n_heads is not None:
+                raise ValueError("SSM architecture does not use n_heads")
+            if self.d_ff is not None:
+                raise ValueError("SSM architecture does not use d_ff")
+        else:
+            if self.n_heads is None:
+                raise ValueError(
+                    f"{self.architecture} architecture requires n_heads parameter"
+                )
+            if self.d_ff is None:
+                raise ValueError(
+                    f"{self.architecture} architecture requires d_ff parameter"
+                )
         return self
 
 
