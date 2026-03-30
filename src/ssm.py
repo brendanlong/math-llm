@@ -20,53 +20,6 @@ from .model import BaseModel, compute_loss, init_weights
 from .tokenizer import VOCAB_SIZE
 
 
-def parallel_scan(A_bar: torch.Tensor, B_bar_x: torch.Tensor) -> torch.Tensor:
-    """Parallel associative scan for linear recurrences.
-
-    Computes h_t = A_bar_t * h_{t-1} + B_bar_x_t for all t in parallel
-    using a Hillis-Steele style parallel prefix sum.
-
-    The associative operator is:
-        (a1, b1) * (a2, b2) = (a1 * a2, a2 * b1 + b2)
-
-    This runs in O(log N) sequential steps. Each step processes all
-    elements in parallel, making it GPU-friendly. Works for any
-    sequence length (not just powers of 2).
-
-    All operations are out-of-place to support autograd.
-
-    Args:
-        A_bar: Decay coefficients of shape (batch, seq_len, d_inner, d_state)
-        B_bar_x: Input terms of shape (batch, seq_len, d_inner, d_state)
-
-    Returns:
-        Hidden states of shape (batch, seq_len, d_inner, d_state)
-    """
-    a = A_bar
-    b = B_bar_x
-    seq_len = a.shape[1]
-
-    stride = 1
-    while stride < seq_len:
-        # For each position k >= stride, combine with position k - stride
-        # (a[k], b[k]) = (a[k] * a[k-stride], a[k] * b[k-stride] + b[k])
-        # Use out-of-place operations by concatenating unchanged prefix with updated suffix
-        new_b = torch.cat(
-            [b[:, :stride], a[:, stride:] * b[:, :-stride] + b[:, stride:]],
-            dim=1,
-        )
-        new_a = torch.cat(
-            [a[:, :stride], a[:, stride:] * a[:, :-stride]],
-            dim=1,
-        )
-        a = new_a
-        b = new_b
-
-        stride *= 2
-
-    return b
-
-
 class SelectiveSSM(nn.Module):
     """Selective state space model core computation.
 
@@ -122,8 +75,6 @@ class SelectiveSSM(nn.Module):
         Returns:
             Output tensor of shape (batch, seq_len, d_inner)
         """
-        _batch, _seq_len, _ = x.shape
-
         # Project input to get dt, B, C (all input-dependent / selective)
         x_proj = self.x_proj(x)  # (batch, seq_len, dt_rank + 2*d_state)
 
@@ -148,14 +99,19 @@ class SelectiveSSM(nn.Module):
         )  # (batch, seq_len, d_inner, d_state)
         B_bar = dt_expanded * B.unsqueeze(2)  # (batch, seq_len, d_inner, d_state)
 
-        # Compute input terms: B_bar * x (broadcast x over state dim)
-        B_bar_x = B_bar * x.unsqueeze(-1)  # (batch, seq_len, d_inner, d_state)
-
-        # Parallel associative scan to compute all hidden states
-        h = parallel_scan(A_bar, B_bar_x)  # (batch, seq_len, d_inner, d_state)
-
-        # Output: y_t = C_t * h_t (sum over state dimension)
-        y = (h * C.unsqueeze(2)).sum(dim=-1)  # (batch, seq_len, d_inner)
+        # Sequential scan — torch.compile unrolls this into a single fused kernel,
+        # which is faster than PyTorch's associative_scan for short sequences
+        # (associative_scan's backward pass is memory-heavy and slow).
+        # For production use with long sequences, consider the mamba-ssm package
+        # which provides custom CUDA kernels.
+        h = torch.zeros(
+            x.shape[0], self.d_inner, self.d_state, device=x.device, dtype=x.dtype
+        )
+        ys = []
+        for t in range(x.shape[1]):
+            h = A_bar[:, t] * h + B_bar[:, t] * x[:, t].unsqueeze(-1)
+            ys.append((h * C[:, t].unsqueeze(1)).sum(dim=-1))
+        y = torch.stack(ys, dim=1)  # (batch, seq_len, d_inner)
 
         # Add skip connection
         y = y + x * self.D.unsqueeze(0).unsqueeze(0)
