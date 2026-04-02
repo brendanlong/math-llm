@@ -20,12 +20,12 @@ from typing import Any, Sized, cast
 
 import numpy as np
 import torch
+import wandb
 from torch.profiler import ProfilerActivity, profile, schedule
 from transformers.trainer import Trainer
 from transformers.trainer_utils import set_seed
 from transformers.training_args import TrainingArguments
 
-import wandb
 from src.config import load_config, save_config
 from src.data import ArithmeticDataset, load_splits
 from src.model import create_model_from_config
@@ -190,6 +190,11 @@ def main() -> None:
         action="store_true",
         help="Track activation statistics (kurtosis, outliers) during training and save at end",
     )
+    parser.add_argument(
+        "--no-torch-compile",
+        action="store_true",
+        help="Disable torch.compile (useful for architectures with sequential operations like SSM)",
+    )
 
     args = parser.parse_args()
 
@@ -326,7 +331,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model="eval_token_accuracy",
         greater_is_better=True,
-        torch_compile=True,
+        torch_compile=not args.no_torch_compile,
     )
 
     # Create optimizer (if not using default AdamW)
