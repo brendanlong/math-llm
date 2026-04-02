@@ -1,0 +1,244 @@
+======================================================================
+MECHANISTIC INTERPRETABILITY ANALYSIS (SSM)
+======================================================================
+
+Sequence: <begin>34567+89012=<think>76543+21098=975321</think>123579<end>
+Tokens: ['<begin>', '3', '4', '5', '6', '7', '+', '8', '9', '0', '1', '2', '=', '<think>', '7', '6', '5', '4', '3', '+', '2', '1', '0', '9', '8', '=', '9', '7', '5', '3', '2', '1', '</think>', '1', '2', '3', '5', '7', '9', '<end>']
+
+----------------------------------------------------------------------
+PREDICTION: position 32 (</think>) -> '1'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0751, top='5'
+    layer_0     : P=0.9314, top='1' << CORRECT
+    layer_1     : P=0.9261, top='1' << CORRECT
+    layer_2     : P=0.9677, top='1' << CORRECT
+    layer_3     : P=0.9871, top='1' << CORRECT
+    layer_4     : P=1.0000, top='1' << CORRECT
+    final       : P=1.0000, top='1' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.470 (mean=0.489, ratio=0.96x)
+    layer_1: dt=0.557 (mean=0.546, ratio=1.02x)
+    layer_2: dt=0.917 (mean=0.629, ratio=1.46x)
+    layer_3: dt=0.507 (mean=0.521, ratio=0.97x)
+    layer_4: dt=1.357 (mean=1.137, ratio=1.19x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 32 (</think>)=1.000, pos 30 (2)=0.123, pos 31 (1)=0.112
+    layer_1: pos 32 (</think>)=1.000, pos 31 (1)=0.196, pos 30 (2)=0.104
+    layer_2: pos 32 (</think>)=1.000, pos 31 (1)=0.308, pos 30 (2)=0.086
+    layer_3: pos 32 (</think>)=1.000, pos 31 (1)=0.331, pos 30 (2)=0.041
+    layer_4: pos 32 (</think>)=1.000, pos 31 (1)=0.062, pos 30 (2)=0.047
+
+  State dynamics:
+    layer_0: ||h||=4.211, ||delta_h||=4.193
+    layer_1: ||h||=7.320, ||delta_h||=11.527
+    layer_2: ||h||=28.410, ||delta_h||=28.321
+    layer_3: ||h||=14.483, ||delta_h||=15.326
+    layer_4: ||h||=364.675, ||delta_h||=422.839
+
+----------------------------------------------------------------------
+PREDICTION: position 33 (1) -> '2'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0127, top='8'
+    layer_0     : P=0.1110, top='5'
+    layer_1     : P=0.2503, top='2' << CORRECT
+    layer_2     : P=0.9939, top='2' << CORRECT
+    layer_3     : P=0.9938, top='2' << CORRECT
+    layer_4     : P=1.0000, top='2' << CORRECT
+    final       : P=1.0000, top='2' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.526 (mean=0.489, ratio=1.07x)
+    layer_1: dt=0.531 (mean=0.546, ratio=0.97x)
+    layer_2: dt=0.623 (mean=0.629, ratio=0.99x)
+    layer_3: dt=0.628 (mean=0.521, ratio=1.21x)
+    layer_4: dt=1.316 (mean=1.137, ratio=1.16x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 33 (1)=1.000, pos 32 (</think>)=0.018, pos 31 (1)=0.010
+    layer_1: pos 33 (1)=1.000, pos 32 (</think>)=0.138, pos 31 (1)=0.054
+    layer_2: pos 33 (1)=1.000, pos 32 (</think>)=0.018, pos 31 (1)=0.005
+    layer_3: pos 32 (</think>)=1.000, pos 33 (1)=0.980, pos 29 (3)=0.664
+    layer_4: pos 33 (1)=1.000, pos 32 (</think>)=0.117, pos 31 (1)=0.066
+
+  State dynamics:
+    layer_0: ||h||=16.189, ||delta_h||=16.141
+    layer_1: ||h||=19.024, ||delta_h||=18.932
+    layer_2: ||h||=28.408, ||delta_h||=30.917
+    layer_3: ||h||=43.825, ||delta_h||=44.021
+    layer_4: ||h||=238.895, ||delta_h||=304.824
+
+----------------------------------------------------------------------
+PREDICTION: position 34 (2) -> '3'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0935, top='7'
+    layer_0     : P=0.2969, top='3' << CORRECT
+    layer_1     : P=0.1462, top='2'
+    layer_2     : P=0.9931, top='3' << CORRECT
+    layer_3     : P=0.9972, top='3' << CORRECT
+    layer_4     : P=1.0000, top='3' << CORRECT
+    final       : P=1.0000, top='3' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.485 (mean=0.489, ratio=0.99x)
+    layer_1: dt=0.567 (mean=0.546, ratio=1.04x)
+    layer_2: dt=0.560 (mean=0.629, ratio=0.89x)
+    layer_3: dt=0.643 (mean=0.521, ratio=1.23x)
+    layer_4: dt=1.044 (mean=1.137, ratio=0.92x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 34 (2)=1.000, pos 33 (1)=0.043, pos 31 (1)=0.011
+    layer_1: pos 34 (2)=1.000, pos 33 (1)=0.144, pos 32 (</think>)=0.059
+    layer_2: pos 34 (2)=1.000, pos 32 (</think>)=0.918, pos 31 (1)=0.163
+    layer_3: pos 34 (2)=1.000, pos 33 (1)=0.058, pos 32 (</think>)=0.019
+    layer_4: pos 34 (2)=1.000, pos 33 (1)=0.178, pos 32 (</think>)=0.070
+
+  State dynamics:
+    layer_0: ||h||=11.094, ||delta_h||=18.097
+    layer_1: ||h||=18.673, ||delta_h||=24.326
+    layer_2: ||h||=27.290, ||delta_h||=27.144
+    layer_3: ||h||=29.898, ||delta_h||=43.326
+    layer_4: ||h||=157.043, ||delta_h||=223.691
+
+----------------------------------------------------------------------
+PREDICTION: position 35 (3) -> '5'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0682, top='8'
+    layer_0     : P=0.0454, top='8'
+    layer_1     : P=0.0283, top='6'
+    layer_2     : P=0.0281, top='6'
+    layer_3     : P=0.9956, top='5' << CORRECT
+    layer_4     : P=1.0000, top='5' << CORRECT
+    final       : P=1.0000, top='5' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.474 (mean=0.489, ratio=0.97x)
+    layer_1: dt=0.501 (mean=0.546, ratio=0.92x)
+    layer_2: dt=0.768 (mean=0.629, ratio=1.22x)
+    layer_3: dt=0.431 (mean=0.521, ratio=0.83x)
+    layer_4: dt=1.067 (mean=1.137, ratio=0.94x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 33 (1)=1.000, pos 34 (2)=0.902, pos 35 (3)=0.440
+    layer_1: pos 35 (3)=1.000, pos 34 (2)=0.051, pos 32 (</think>)=0.036
+    layer_2: pos 35 (3)=1.000, pos 32 (</think>)=0.476, pos 34 (2)=0.241
+    layer_3: pos 34 (2)=1.000, pos 33 (1)=0.031, pos 32 (</think>)=0.021
+    layer_4: pos 35 (3)=1.000, pos 34 (2)=0.124, pos 30 (2)=0.055
+
+  State dynamics:
+    layer_0: ||h||=5.531, ||delta_h||=9.797
+    layer_1: ||h||=9.754, ||delta_h||=18.870
+    layer_2: ||h||=13.304, ||delta_h||=26.707
+    layer_3: ||h||=30.170, ||delta_h||=23.513
+    layer_4: ||h||=134.313, ||delta_h||=167.471
+
+----------------------------------------------------------------------
+PREDICTION: position 36 (5) -> '7'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0733, top='9'
+    layer_0     : P=0.0235, top='3'
+    layer_1     : P=0.0187, top='2'
+    layer_2     : P=0.1139, top='1'
+    layer_3     : P=0.9618, top='7' << CORRECT
+    layer_4     : P=1.0000, top='7' << CORRECT
+    final       : P=1.0000, top='7' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.451 (mean=0.489, ratio=0.92x)
+    layer_1: dt=0.555 (mean=0.546, ratio=1.02x)
+    layer_2: dt=0.665 (mean=0.629, ratio=1.06x)
+    layer_3: dt=0.488 (mean=0.521, ratio=0.94x)
+    layer_4: dt=1.067 (mean=1.137, ratio=0.94x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 36 (5)=1.000, pos 35 (3)=0.557, pos 34 (2)=0.308
+    layer_1: pos 36 (5)=1.000, pos 35 (3)=0.296, pos 32 (</think>)=0.046
+    layer_2: pos 36 (5)=1.000, pos 35 (3)=0.284, pos 32 (</think>)=0.103
+    layer_3: pos 36 (5)=1.000, pos 33 (1)=0.537, pos 35 (3)=0.496
+    layer_4: pos 36 (5)=1.000, pos 35 (3)=0.134, pos 34 (2)=0.061
+
+  State dynamics:
+    layer_0: ||h||=4.505, ||delta_h||=4.344
+    layer_1: ||h||=4.457, ||delta_h||=8.587
+    layer_2: ||h||=9.375, ||delta_h||=11.730
+    layer_3: ||h||=22.383, ||delta_h||=25.949
+    layer_4: ||h||=124.976, ||delta_h||=146.388
+
+----------------------------------------------------------------------
+PREDICTION: position 37 (7) -> '9'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.1647, top='9' << CORRECT
+    layer_0     : P=0.0322, top='3'
+    layer_1     : P=0.0110, top='<end>'
+    layer_2     : P=0.0256, top='2'
+    layer_3     : P=0.9953, top='9' << CORRECT
+    layer_4     : P=1.0000, top='9' << CORRECT
+    final       : P=1.0000, top='9' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.465 (mean=0.489, ratio=0.95x)
+    layer_1: dt=0.532 (mean=0.546, ratio=0.97x)
+    layer_2: dt=0.574 (mean=0.629, ratio=0.91x)
+    layer_3: dt=0.701 (mean=0.521, ratio=1.35x)
+    layer_4: dt=1.057 (mean=1.137, ratio=0.93x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 37 (7)=1.000, pos 36 (5)=0.959, pos 35 (3)=0.606
+    layer_1: pos 37 (7)=1.000, pos 35 (3)=0.208, pos 36 (5)=0.193
+    layer_2: pos 36 (5)=1.000, pos 35 (3)=0.570, pos 32 (</think>)=0.206
+    layer_3: pos 37 (7)=1.000, pos 36 (5)=0.217, pos 35 (3)=0.106
+    layer_4: pos 37 (7)=1.000, pos 36 (5)=0.074, pos 35 (3)=0.024
+
+  State dynamics:
+    layer_0: ||h||=3.916, ||delta_h||=2.937
+    layer_1: ||h||=5.341, ||delta_h||=5.374
+    layer_2: ||h||=6.373, ||delta_h||=6.240
+    layer_3: ||h||=22.298, ||delta_h||=22.655
+    layer_4: ||h||=153.625, ||delta_h||=162.954
+
+----------------------------------------------------------------------
+PREDICTION: position 38 (9) -> '<end>'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0283, top='6'
+    layer_0     : P=0.0875, top='5'
+    layer_1     : P=0.1190, top='='
+    layer_2     : P=0.2090, top='='
+    layer_3     : P=0.0516, top='='
+    layer_4     : P=1.0000, top='<end>' << CORRECT
+    final       : P=1.0000, top='<end>' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.467 (mean=0.489, ratio=0.95x)
+    layer_1: dt=0.571 (mean=0.546, ratio=1.05x)
+    layer_2: dt=0.552 (mean=0.629, ratio=0.88x)
+    layer_3: dt=0.487 (mean=0.521, ratio=0.94x)
+    layer_4: dt=0.990 (mean=1.137, ratio=0.87x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 38 (9)=1.000, pos 37 (7)=0.163, pos 36 (5)=0.128
+    layer_1: pos 38 (9)=1.000, pos 35 (3)=0.057, pos 36 (5)=0.042
+    layer_2: pos 38 (9)=1.000, pos 36 (5)=0.649, pos 35 (3)=0.434
+    layer_3: pos 38 (9)=1.000, pos 37 (7)=0.587, pos 36 (5)=0.276
+    layer_4: pos 38 (9)=1.000, pos 37 (7)=0.027, pos 36 (5)=0.011
+
+  State dynamics:
+    layer_0: ||h||=4.339, ||delta_h||=3.345
+    layer_1: ||h||=6.595, ||delta_h||=7.372
+    layer_2: ||h||=8.597, ||delta_h||=7.694
+    layer_3: ||h||=20.357, ||delta_h||=20.624
+    layer_4: ||h||=148.537, ||delta_h||=178.758
