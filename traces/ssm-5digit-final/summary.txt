@@ -1,0 +1,300 @@
+======================================================================
+MECHANISTIC INTERPRETABILITY ANALYSIS (SSM)
+======================================================================
+
+Sequence: <begin>34567+89012=<think>76543+21098=975321</think>123579<end>
+Tokens: ['<begin>', '3', '4', '5', '6', '7', '+', '8', '9', '0', '1', '2', '=', '<think>', '7', '6', '5', '4', '3', '+', '2', '1', '0', '9', '8', '=', '9', '7', '5', '3', '2', '1', '</think>', '1', '2', '3', '5', '7', '9', '<end>']
+
+----------------------------------------------------------------------
+PREDICTION: position 32 (</think>) -> '1'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0831, top='5'
+    layer_0     : P=0.9603, top='1' << CORRECT
+    layer_1     : P=0.9871, top='1' << CORRECT
+    layer_2     : P=0.9896, top='1' << CORRECT
+    layer_3     : P=0.9896, top='1' << CORRECT
+    layer_4     : P=1.0000, top='1' << CORRECT
+    final       : P=1.0000, top='1' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.476 (mean=0.517, ratio=0.92x)
+    layer_1: dt=0.469 (mean=0.461, ratio=1.02x)
+    layer_2: dt=0.942 (mean=0.618, ratio=1.52x)
+    layer_3: dt=0.443 (mean=0.504, ratio=0.88x)
+    layer_4: dt=1.180 (mean=1.207, ratio=0.98x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 32 (</think>)=1.000, pos 30 (2)=0.301, pos 31 (1)=0.251
+    layer_1: pos 32 (</think>)=1.000, pos 31 (1)=0.233, pos 30 (2)=0.101
+    layer_2: pos 32 (</think>)=1.000, pos 31 (1)=0.217, pos 30 (2)=0.073
+    layer_3: pos 32 (</think>)=1.000, pos 31 (1)=0.239, pos 30 (2)=0.229
+    layer_4: pos 32 (</think>)=1.000, pos 31 (1)=0.119, pos 30 (2)=0.023
+
+  State dynamics:
+    layer_0: ||h||=3.608, ||delta_h||=3.697
+    layer_1: ||h||=8.244, ||delta_h||=17.699
+    layer_2: ||h||=31.770, ||delta_h||=31.254
+    layer_3: ||h||=12.842, ||delta_h||=11.254
+    layer_4: ||h||=229.298, ||delta_h||=418.462
+
+  Causal Trace (clean=18.64, corrupt=6.05):
+  Top-5 critical (layer, position):
+    (layer_3, pos 32 '</think>'): recovery=1.000
+    (layer_4, pos 32 '</think>'): recovery=1.000
+    (layer_2, pos 32 '</think>'): recovery=0.994
+    (layer_1, pos 32 '</think>'): recovery=0.985
+    (layer_0, pos 32 '</think>'): recovery=0.925
+
+----------------------------------------------------------------------
+PREDICTION: position 33 (1) -> '2'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0220, top='6'
+    layer_0     : P=0.3725, top='2' << CORRECT
+    layer_1     : P=0.5335, top='2' << CORRECT
+    layer_2     : P=0.9770, top='2' << CORRECT
+    layer_3     : P=0.9771, top='2' << CORRECT
+    layer_4     : P=1.0000, top='2' << CORRECT
+    final       : P=1.0000, top='2' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.529 (mean=0.517, ratio=1.02x)
+    layer_1: dt=0.479 (mean=0.461, ratio=1.04x)
+    layer_2: dt=0.582 (mean=0.618, ratio=0.94x)
+    layer_3: dt=0.550 (mean=0.504, ratio=1.09x)
+    layer_4: dt=1.190 (mean=1.207, ratio=0.99x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 33 (1)=1.000, pos 31 (1)=0.011, pos 30 (2)=0.011
+    layer_1: pos 33 (1)=1.000, pos 32 (</think>)=0.139, pos 31 (1)=0.063
+    layer_2: pos 33 (1)=1.000, pos 32 (</think>)=0.004, pos 31 (1)=0.001
+    layer_3: pos 33 (1)=1.000, pos 31 (1)=0.497, pos 30 (2)=0.376
+    layer_4: pos 33 (1)=1.000, pos 32 (</think>)=0.133, pos 31 (1)=0.074
+
+  State dynamics:
+    layer_0: ||h||=18.714, ||delta_h||=18.776
+    layer_1: ||h||=18.757, ||delta_h||=20.584
+    layer_2: ||h||=30.804, ||delta_h||=33.165
+    layer_3: ||h||=37.356, ||delta_h||=36.260
+    layer_4: ||h||=203.758, ||delta_h||=231.936
+
+  Causal Trace (clean=17.68, corrupt=-2.29):
+  Top-5 critical (layer, position):
+    (layer_4, pos 33 '1'): recovery=1.000
+    (layer_3, pos 33 '1'): recovery=0.988
+    (layer_2, pos 33 '1'): recovery=0.987
+    (layer_0, pos 33 '1'): recovery=0.926
+    (layer_1, pos 33 '1'): recovery=0.913
+
+----------------------------------------------------------------------
+PREDICTION: position 34 (2) -> '3'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0874, top='7'
+    layer_0     : P=0.1283, top='2'
+    layer_1     : P=0.0341, top='2'
+    layer_2     : P=0.9858, top='3' << CORRECT
+    layer_3     : P=0.9958, top='3' << CORRECT
+    layer_4     : P=1.0000, top='3' << CORRECT
+    final       : P=1.0000, top='3' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.521 (mean=0.517, ratio=1.01x)
+    layer_1: dt=0.452 (mean=0.461, ratio=0.98x)
+    layer_2: dt=0.481 (mean=0.618, ratio=0.78x)
+    layer_3: dt=0.538 (mean=0.504, ratio=1.07x)
+    layer_4: dt=1.061 (mean=1.207, ratio=0.88x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 34 (2)=1.000, pos 33 (1)=0.020, pos 31 (1)=0.004
+    layer_1: pos 34 (2)=1.000, pos 33 (1)=0.184, pos 32 (</think>)=0.069
+    layer_2: pos 32 (</think>)=1.000, pos 31 (1)=0.171, pos 30 (2)=0.057
+    layer_3: pos 34 (2)=1.000, pos 33 (1)=0.323, pos 31 (1)=0.046
+    layer_4: pos 34 (2)=1.000, pos 33 (1)=0.288, pos 32 (</think>)=0.104
+
+  State dynamics:
+    layer_0: ||h||=8.480, ||delta_h||=19.697
+    layer_1: ||h||=21.872, ||delta_h||=25.828
+    layer_2: ||h||=21.488, ||delta_h||=23.978
+    layer_3: ||h||=35.186, ||delta_h||=40.354
+    layer_4: ||h||=146.881, ||delta_h||=168.163
+
+  Causal Trace (clean=18.37, corrupt=1.55):
+  Top-5 critical (layer, position):
+    (layer_4, pos 34 '2'): recovery=1.000
+    (layer_2, pos 34 '2'): recovery=0.984
+    (layer_3, pos 34 '2'): recovery=0.983
+    (embed, pos 32 '</think>'): recovery=0.924
+    (layer_1, pos 34 '2'): recovery=0.594
+
+----------------------------------------------------------------------
+PREDICTION: position 35 (3) -> '5'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0545, top='8'
+    layer_0     : P=0.0417, top='8'
+    layer_1     : P=0.0138, top='6'
+    layer_2     : P=0.0176, top='6'
+    layer_3     : P=0.9999, top='5' << CORRECT
+    layer_4     : P=1.0000, top='5' << CORRECT
+    final       : P=1.0000, top='5' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.490 (mean=0.517, ratio=0.95x)
+    layer_1: dt=0.446 (mean=0.461, ratio=0.97x)
+    layer_2: dt=0.951 (mean=0.618, ratio=1.54x)
+    layer_3: dt=0.444 (mean=0.504, ratio=0.88x)
+    layer_4: dt=1.202 (mean=1.207, ratio=1.00x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 35 (3)=1.000, pos 34 (2)=0.515, pos 33 (1)=0.354
+    layer_1: pos 35 (3)=1.000, pos 34 (2)=0.019, pos 32 (</think>)=0.011
+    layer_2: pos 35 (3)=1.000, pos 34 (2)=0.137, pos 32 (</think>)=0.092
+    layer_3: pos 34 (2)=1.000, pos 35 (3)=0.316, pos 33 (1)=0.062
+    layer_4: pos 35 (3)=1.000, pos 34 (2)=0.180, pos 33 (1)=0.118
+
+  State dynamics:
+    layer_0: ||h||=4.436, ||delta_h||=7.643
+    layer_1: ||h||=11.993, ||delta_h||=23.493
+    layer_2: ||h||=13.535, ||delta_h||=22.670
+    layer_3: ||h||=31.398, ||delta_h||=26.521
+    layer_4: ||h||=178.099, ||delta_h||=207.488
+
+  Causal Trace (clean=17.15, corrupt=2.64):
+  Top-5 critical (layer, position):
+    (layer_4, pos 35 '3'): recovery=1.000
+    (layer_3, pos 35 '3'): recovery=0.903
+    (layer_2, pos 31 '1'): recovery=0.559
+    (layer_1, pos 31 '1'): recovery=0.494
+    (layer_0, pos 31 '1'): recovery=0.262
+
+----------------------------------------------------------------------
+PREDICTION: position 36 (5) -> '7'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.1479, top='9'
+    layer_0     : P=0.0349, top='3'
+    layer_1     : P=0.0058, top='2'
+    layer_2     : P=0.0315, top='1'
+    layer_3     : P=0.9955, top='7' << CORRECT
+    layer_4     : P=1.0000, top='7' << CORRECT
+    final       : P=1.0000, top='7' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.487 (mean=0.517, ratio=0.94x)
+    layer_1: dt=0.461 (mean=0.461, ratio=1.00x)
+    layer_2: dt=0.748 (mean=0.618, ratio=1.21x)
+    layer_3: dt=0.472 (mean=0.504, ratio=0.94x)
+    layer_4: dt=0.904 (mean=1.207, ratio=0.75x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 35 (3)=1.000, pos 34 (2)=0.494, pos 33 (1)=0.275
+    layer_1: pos 36 (5)=1.000, pos 35 (3)=0.263, pos 32 (</think>)=0.042
+    layer_2: pos 36 (5)=1.000, pos 35 (3)=0.280, pos 32 (</think>)=0.049
+    layer_3: pos 36 (5)=1.000, pos 33 (1)=0.596, pos 35 (3)=0.542
+    layer_4: pos 36 (5)=1.000, pos 35 (3)=0.212, pos 34 (2)=0.073
+
+  State dynamics:
+    layer_0: ||h||=3.610, ||delta_h||=3.488
+    layer_1: ||h||=5.727, ||delta_h||=10.677
+    layer_2: ||h||=10.611, ||delta_h||=12.282
+    layer_3: ||h||=27.468, ||delta_h||=27.940
+    layer_4: ||h||=128.658, ||delta_h||=178.578
+
+  Causal Trace (clean=19.61, corrupt=3.29):
+  Top-5 critical (layer, position):
+    (layer_4, pos 36 '5'): recovery=1.000
+    (layer_2, pos 33 '1'): recovery=0.933
+    (layer_3, pos 36 '5'): recovery=0.816
+    (layer_3, pos 33 '1'): recovery=0.802
+    (layer_1, pos 30 '2'): recovery=0.393
+
+----------------------------------------------------------------------
+PREDICTION: position 37 (7) -> '9'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.1892, top='9' << CORRECT
+    layer_0     : P=0.0611, top='2'
+    layer_1     : P=0.0117, top='</think>'
+    layer_2     : P=0.0344, top='2'
+    layer_3     : P=0.9454, top='9' << CORRECT
+    layer_4     : P=1.0000, top='9' << CORRECT
+    final       : P=1.0000, top='9' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.488 (mean=0.517, ratio=0.94x)
+    layer_1: dt=0.480 (mean=0.461, ratio=1.04x)
+    layer_2: dt=0.521 (mean=0.618, ratio=0.84x)
+    layer_3: dt=0.669 (mean=0.504, ratio=1.33x)
+    layer_4: dt=0.806 (mean=1.207, ratio=0.67x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 37 (7)=1.000, pos 35 (3)=0.146, pos 36 (5)=0.128
+    layer_1: pos 37 (7)=1.000, pos 36 (5)=0.080, pos 35 (3)=0.078
+    layer_2: pos 36 (5)=1.000, pos 35 (3)=0.690, pos 37 (7)=0.301
+    layer_3: pos 37 (7)=1.000, pos 36 (5)=0.246, pos 35 (3)=0.109
+    layer_4: pos 37 (7)=1.000, pos 36 (5)=0.099, pos 35 (3)=0.042
+
+  State dynamics:
+    layer_0: ||h||=4.714, ||delta_h||=4.058
+    layer_1: ||h||=6.252, ||delta_h||=6.737
+    layer_2: ||h||=8.400, ||delta_h||=5.811
+    layer_3: ||h||=23.064, ||delta_h||=23.819
+    layer_4: ||h||=128.996, ||delta_h||=133.030
+
+  Causal Trace (clean=19.24, corrupt=4.21):
+  Top-5 critical (layer, position):
+    (layer_4, pos 37 '7'): recovery=1.000
+    (layer_2, pos 34 '2'): recovery=0.981
+    (layer_3, pos 37 '7'): recovery=0.711
+    (layer_3, pos 34 '2'): recovery=0.694
+    (layer_1, pos 34 '2'): recovery=0.625
+
+----------------------------------------------------------------------
+PREDICTION: position 38 (9) -> '<end>'
+----------------------------------------------------------------------
+
+  Logit Lens (P(correct) at each layer):
+    embed       : P=0.0212, top='5'
+    layer_0     : P=0.0607, top='2'
+    layer_1     : P=0.0711, top='3'
+    layer_2     : P=0.1298, top='3'
+    layer_3     : P=0.1553, top='='
+    layer_4     : P=1.0000, top='<end>' << CORRECT
+    final       : P=1.0000, top='<end>' << CORRECT
+
+  Selective Gate (dt) - where the model opens the gate:
+    layer_0: dt=0.503 (mean=0.517, ratio=0.97x)
+    layer_1: dt=0.478 (mean=0.461, ratio=1.04x)
+    layer_2: dt=0.491 (mean=0.618, ratio=0.79x)
+    layer_3: dt=0.488 (mean=0.504, ratio=0.97x)
+    layer_4: dt=1.085 (mean=1.207, ratio=0.90x)
+
+  Top influence sources (SSM's 'attention'):
+    layer_0: pos 38 (9)=1.000, pos 37 (7)=0.216, pos 35 (3)=0.087
+    layer_1: pos 38 (9)=1.000, pos 35 (3)=0.048, pos 37 (7)=0.038
+    layer_2: pos 36 (5)=1.000, pos 38 (9)=0.903, pos 35 (3)=0.694
+    layer_3: pos 38 (9)=1.000, pos 37 (7)=0.870, pos 36 (5)=0.471
+    layer_4: pos 38 (9)=1.000, pos 37 (7)=0.094, pos 36 (5)=0.034
+
+  State dynamics:
+    layer_0: ||h||=3.606, ||delta_h||=4.093
+    layer_1: ||h||=7.517, ||delta_h||=8.509
+    layer_2: ||h||=12.187, ||delta_h||=10.294
+    layer_3: ||h||=16.687, ||delta_h||=18.275
+    layer_4: ||h||=191.959, ||delta_h||=197.679
+
+  Causal Trace (clean=17.10, corrupt=2.56):
+  Top-5 critical (layer, position):
+    (layer_4, pos 38 '9'): recovery=1.000
+    (layer_2, pos 36 '5'): recovery=0.730
+    (layer_3, pos 38 '9'): recovery=0.609
+    (layer_3, pos 36 '5'): recovery=0.483
+    (layer_1, pos 36 '5'): recovery=0.440
