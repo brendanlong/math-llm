@@ -9,25 +9,24 @@ Generates matplotlib visualizations and a text summary.
 
 Usage:
     python scripts/trace_model.py \
-        --checkpoint-dir checkpoints/standard-small-rope-preln/checkpoint-19000/ \
+        --checkpoint checkpoints/standard-small-rope-preln/checkpoint-19000/ \
         --prompt "<begin>10+9=" \
         --output-dir traces/
 """
 
 import argparse
-import re
 from pathlib import Path
 from typing import Any, Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import safetensors.torch
 import torch
 
-from src.config import ModelConfig, find_config_in_checkpoint, load_config
-from src.model import ArithmeticModel, create_model_from_config
-from src.tokenizer import END_THINK_TOKEN_ID, END_TOKEN_ID, VOCAB
+from src.config import ModelConfig, load_config, resolve_checkpoint
+from src.model import ArithmeticModel
+from src.tokenizer import END_THINK_TOKEN_ID, END_TOKEN_ID, VOCAB, tokenizer
+from src.utils import load_model as load_model_from_files
 
 matplotlib.use("Agg")
 
@@ -35,9 +34,8 @@ INV_VOCAB = {v: k for k, v in VOCAB.items()}
 
 
 def tokenize(text: str) -> list[int]:
-    """Tokenize text manually using regex."""
-    pattern = r"<begin>|</think>|<think>|<noop>|<end>|[0-9+=]"
-    return [VOCAB[t] for t in re.findall(pattern, text)]
+    """Tokenize text using the shared project tokenizer."""
+    return tokenizer.encode(text)
 
 
 def decode_tokens(ids: list[int]) -> list[str]:
@@ -46,16 +44,12 @@ def decode_tokens(ids: list[int]) -> list[str]:
 
 
 def load_model(
-    checkpoint_dir: Path,
+    checkpoint: Path,
 ) -> tuple[ArithmeticModel, ModelConfig]:
-    """Load model from checkpoint directory."""
-    config_path = find_config_in_checkpoint(checkpoint_dir)
-    if config_path is None:
-        raise FileNotFoundError(f"No model_config.yaml found near {checkpoint_dir}")
+    """Load model from a checkpoint file or directory."""
+    checkpoint_path, config_path = resolve_checkpoint(checkpoint)
     config = load_config(config_path)
-    model = create_model_from_config(config)
-    state = safetensors.torch.load_file(str(checkpoint_dir / "model.safetensors"))
-    model.load_state_dict(state)
+    model = load_model_from_files(checkpoint_path, config_path)
     model.eval()
     assert isinstance(model, ArithmeticModel), "Only standard architecture supported"
     return model, config
@@ -602,10 +596,10 @@ def main() -> None:
         description="Trace model decisions using mechanistic interpretability"
     )
     parser.add_argument(
-        "--checkpoint-dir",
+        "--checkpoint",
         type=Path,
         required=True,
-        help="Path to checkpoint directory",
+        help="Path to model checkpoint file or directory containing one",
     )
     parser.add_argument(
         "--prompt",
@@ -637,7 +631,7 @@ def main() -> None:
 
     # Load model
     print("Loading model...")
-    model, config = load_model(args.checkpoint_dir)
+    model, config = load_model(args.checkpoint)
     print(f"  Architecture: {config.architecture}")
     print(
         f"  d_model={config.d_model}, n_layers={config.n_layers}, "
@@ -655,7 +649,7 @@ def main() -> None:
         input_ids = torch.tensor([prompt_ids])
         print(f"\nGenerating from: {args.prompt}")
         with torch.no_grad():
-            generated = model.generate(input_ids, max_new_tokens=100, temperature=0.01)
+            generated = model.generate(input_ids, max_new_tokens=100, temperature=0.0)
         gen_tokens = generated[0].tolist()
         full_text = "".join(INV_VOCAB[t] for t in gen_tokens)
         print(f"Generated: {full_text}")

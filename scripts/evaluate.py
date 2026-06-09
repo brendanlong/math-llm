@@ -21,7 +21,7 @@ from src.activation_stats import (
     ActivationStatsSummary,
     format_stats_summary,
 )
-from src.config import ModelConfig, find_config_in_checkpoint, load_config
+from src.config import ModelConfig, load_config, resolve_checkpoint
 from src.data import create_dataloader
 from src.model import Model
 from src.tokenizer import END_THINK_TOKEN_ID, THINK_TOKEN_ID, tokenizer
@@ -136,15 +136,18 @@ def compute_exact_match_accuracy(
                         tokenizer.encode(prompt), dtype=torch.long, device=device
                     ).unsqueeze(0)
 
-                    # Generate completion
+                    # Generate completion (temperature=0 -> greedy, deterministic)
                     generated_ids = model.generate(
                         prompt_ids,
                         max_new_tokens=max_new_tokens,
-                        temperature=0.1,  # Low temperature for deterministic output
+                        temperature=0.0,
                     )
 
-                    # Extract only the generated part
-                    generated_text = tokenizer.decode(generated_ids[0].cpu().tolist())
+                    # Extract only the generated part (drop the prompt tokens)
+                    prompt_length = prompt_ids.shape[1]
+                    generated_text = tokenizer.decode(
+                        generated_ids[0, prompt_length:].cpu().tolist()
+                    )
 
                     # Remove thinking sections before comparison
                     generated_clean = remove_thinking_sections(generated_text.strip())
@@ -323,7 +326,7 @@ def main() -> None:
         "--checkpoint",
         type=Path,
         required=True,
-        help="Path to model checkpoint",
+        help="Path to model checkpoint file or directory containing one",
     )
     parser.add_argument(
         "--config",
@@ -394,25 +397,19 @@ def main() -> None:
     device = get_device(args.device)
     logging.info(f"Using device: {device}")
 
-    # Find or use provided config
-    if args.config is not None:
-        config_path = args.config
-    else:
-        config_path = find_config_in_checkpoint(args.checkpoint)
-        if config_path is None:
-            logging.error(
-                "No model_config.yaml found in checkpoint directory. "
-                "Please specify --config path."
-            )
-            sys.exit(1)
-        logging.info(f"Auto-detected config: {config_path}")
+    # Resolve checkpoint file and config (accepts file or directory)
+    try:
+        checkpoint_path, config_path = resolve_checkpoint(args.checkpoint, args.config)
+    except FileNotFoundError as e:
+        logging.error(str(e))
+        sys.exit(1)
 
     # Load model config (needed for activation stats)
     model_config = load_config(config_path)
 
     # Load model
-    logging.info(f"Loading model from {args.checkpoint} with config {config_path}")
-    model = load_model(args.checkpoint, config_path)
+    logging.info(f"Loading model from {checkpoint_path} with config {config_path}")
+    model = load_model(checkpoint_path, config_path)
     model.to(device)
 
     # Determine data path
@@ -468,13 +465,7 @@ def main() -> None:
         logging.info("\n" + format_stats_summary(activation_stats))
 
         # Determine output path (auto-save to checkpoint directory)
-        checkpoint_path = Path(args.checkpoint)
-        if checkpoint_path.is_file():
-            checkpoint_dir = checkpoint_path.parent
-        else:
-            checkpoint_dir = checkpoint_path
-
-        stats_path = checkpoint_dir / "activation_stats.json"
+        stats_path = checkpoint_path.parent / "activation_stats.json"
         activation_stats.save(stats_path)
         logging.info(f"Activation stats saved to {stats_path}")
 

@@ -425,7 +425,7 @@ def main() -> None:
 
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            with torch.autocast(device_type="cuda", enabled=args.fp16):
+            with torch.autocast(device_type=device.type, enabled=args.fp16):
                 outputs = model(**batch)
                 loss = outputs["loss"]
 

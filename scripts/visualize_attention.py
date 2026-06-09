@@ -13,27 +13,12 @@ import argparse
 from pathlib import Path
 
 import torch
-from safetensors.torch import load_file
 
-from src.config import load_config
-from src.model import BaseModel, FeedbackTransformerModel, create_model_from_config
-from src.tokenizer import tokenizer
-
-BEGIN_TOKEN = "<begin>"
-
-
-def ensure_begin_token(text: str) -> str:
-    """Prepend <begin> token to text if not already present.
-
-    Args:
-        text: Input text
-
-    Returns:
-        Text with <begin> token prepended if not already present
-    """
-    if not text.startswith(BEGIN_TOKEN):
-        return BEGIN_TOKEN + text
-    return text
+from src.config import load_config, resolve_checkpoint
+from src.model import BaseModel, FeedbackTransformerModel
+from src.tokenizer import ensure_begin_token, tokenizer
+from src.utils import get_device
+from src.utils import load_model as load_model_from_files
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,9 +28,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--checkpoint",
-        type=str,
+        type=Path,
         required=True,
-        help="Path to checkpoint directory (e.g., checkpoints/standard-small-pope)",
+        help="Path to model checkpoint file or directory containing one",
     )
     parser.add_argument(
         "--input",
@@ -87,38 +72,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_model(checkpoint_dir: str, device: str = "auto") -> tuple[BaseModel, str]:
-    """Load a model from a checkpoint directory.
+def load_model(
+    checkpoint: Path, device_str: str = "auto"
+) -> tuple[BaseModel, torch.device]:
+    """Load a model from a checkpoint file or directory.
 
     Args:
-        checkpoint_dir: Path to checkpoint directory
-        device: Device to load model on
+        checkpoint: Path to checkpoint file or directory containing one
+        device_str: Device to load model on ("cuda", "cpu", or "auto")
 
     Returns:
-        Tuple of (model, device_str)
+        Tuple of (model, device)
     """
-    checkpoint_path = Path(checkpoint_dir)
-    config_path = checkpoint_path / "model_config.yaml"
-    weights_path = checkpoint_path / "model.safetensors"
-
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config not found: {config_path}")
-    if not weights_path.exists():
-        raise FileNotFoundError(f"Weights not found: {weights_path}")
-
-    if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
+    checkpoint_path, config_path = resolve_checkpoint(checkpoint)
     config = load_config(config_path)
-    model = create_model_from_config(config)
+    device = get_device(device_str)
 
-    state_dict = load_file(str(weights_path))
-    model.load_state_dict(state_dict)
-
-    model = model.to(device)
+    model = load_model_from_files(checkpoint_path, config_path)
+    model.to(device)
     model.eval()
 
-    print(f"Loaded model from {checkpoint_dir}")
+    print(f"Loaded model from {checkpoint_path}")
     print(f"  Architecture: {config.architecture}")
     print(f"  Positional encoding: {config.positional_encoding}")
     print(f"  Softmax variant: {config.softmax_variant}")
@@ -129,7 +103,7 @@ def load_model(checkpoint_dir: str, device: str = "auto") -> tuple[BaseModel, st
 
 
 def get_attention_weights(
-    model: BaseModel, input_text: str, device: str
+    model: BaseModel, input_text: str, device: torch.device
 ) -> tuple[tuple[torch.Tensor, ...], list[str]]:
     """Get attention weights for an input expression.
 
@@ -164,7 +138,7 @@ def get_attention_weights(
 
 
 def generate_and_get_attention(
-    model: BaseModel, input_text: str, device: str, max_new_tokens: int = 50
+    model: BaseModel, input_text: str, device: torch.device, max_new_tokens: int = 50
 ) -> tuple[tuple[torch.Tensor, ...], list[str], str]:
     """Generate output and get attention weights for the full sequence.
 
@@ -183,7 +157,7 @@ def generate_and_get_attention(
 
     with torch.no_grad():
         generated = model.generate(
-            inputs, max_new_tokens=max_new_tokens, temperature=0.1
+            inputs, max_new_tokens=max_new_tokens, temperature=0.0
         )
 
     generated_token_ids = generated[0].tolist()
@@ -261,8 +235,7 @@ def main() -> None:
         from bertviz import head_view, model_view
     except ImportError:
         print("Error: bertviz is not installed.")
-        print("Install with: pip install bertviz")
-        print("Or install dev dependencies: pip install -e '.[dev]'")
+        print("Install dev dependencies with: uv sync")
         return
 
     model, device = load_model(args.checkpoint, args.device)

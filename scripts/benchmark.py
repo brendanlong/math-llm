@@ -14,7 +14,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-import colorlog
 import torch
 from torch.utils.data import DataLoader
 from transformers.trainer import Trainer
@@ -30,6 +29,7 @@ from src.training import (
     data_collator,
     setup_training_optimizations,
 )
+from src.utils import setup_logging
 
 
 @dataclass
@@ -58,28 +58,6 @@ class BenchmarkResult:
     baseline_samples_per_second: float | None
     speedup: float | None
     avg_sequence_length: float
-
-
-def setup_logging() -> None:
-    """Setup colored logging configuration."""
-    console_handler = colorlog.StreamHandler()
-    console_handler.setFormatter(
-        colorlog.ColoredFormatter(
-            "%(log_color)s%(asctime)s - %(levelname)-8s%(reset)s %(message)s",
-            datefmt="%H:%M:%S",
-            log_colors={
-                "DEBUG": "cyan",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "red,bg_white",
-            },
-        )
-    )
-
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(console_handler)
 
 
 def generate_benchmark_data(
@@ -182,7 +160,7 @@ def benchmark_training_step(
 
         optimizer.zero_grad()
 
-        with torch.autocast(device_type="cuda", enabled=fp16):
+        with torch.autocast(device_type=device.type, enabled=fp16):
             loss = trainer.compute_loss(model, batch)
 
         # Handle case where compute_loss returns a tensor or tuple
@@ -196,18 +174,20 @@ def benchmark_training_step(
         torch.cuda.synchronize()
     start_time = time.time()
     total_samples = 0
+    steps_run = 0
 
-    for step, batch in enumerate(dataloader):
-        if step >= num_steps:
+    for batch in dataloader:
+        if steps_run >= num_steps:
             break
 
         batch = {k: v.to(device) for k, v in batch.items()}
         batch_size = batch["input_ids"].shape[0]
         total_samples += batch_size
+        steps_run += 1
 
         optimizer.zero_grad()
 
-        with torch.autocast(device_type="cuda", enabled=fp16):
+        with torch.autocast(device_type=device.type, enabled=fp16):
             loss = trainer.compute_loss(model, batch)
 
         # Handle case where compute_loss returns a tensor or tuple
@@ -222,8 +202,10 @@ def benchmark_training_step(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+    # Use the actual number of steps run: the dataloader may exhaust before
+    # num_steps when the dataset is small relative to the batch size
     total_time = end_time - start_time
-    iterations_per_second = num_steps / total_time
+    iterations_per_second = steps_run / total_time
     samples_per_second = total_samples / total_time
 
     return iterations_per_second, samples_per_second
