@@ -2,15 +2,11 @@
 """Benchmark data loader performance with different configurations."""
 
 import argparse
-import sys
 import time
 from pathlib import Path
 from typing import TypedDict
 
 import torch
-
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data import create_dataloader
 
@@ -58,27 +54,33 @@ def benchmark_dataloader(
             break
 
     # Benchmark phase
-    print(f"Benchmarking {max_batches} batches...")
+    print(f"Benchmarking up to {max_batches} batches...")
     start_time = time.time()
     total_samples = 0
+    total_batches = 0
 
-    for i, batch in enumerate(dataloader):
-        if i >= max_batches:
+    for batch in dataloader:
+        if total_batches >= max_batches:
             break
         total_samples += batch["input_ids"].size(0)
+        total_batches += 1
 
     end_time = time.time()
     elapsed_time = end_time - start_time
 
-    # Calculate metrics
+    if total_batches == 0:
+        raise ValueError(f"No batches produced from {data_path}")
+
+    # Use the actual number of batches run: the dataloader may exhaust before
+    # max_batches when the dataset is small relative to the batch size
     samples_per_second = total_samples / elapsed_time
-    batches_per_second = max_batches / elapsed_time
-    time_per_batch = elapsed_time / max_batches
+    batches_per_second = total_batches / elapsed_time
+    time_per_batch = elapsed_time / total_batches
 
     return {
         "batch_size": batch_size,
         "total_samples": total_samples,
-        "total_batches": max_batches,
+        "total_batches": total_batches,
         "elapsed_time": elapsed_time,
         "samples_per_second": samples_per_second,
         "batches_per_second": batches_per_second,

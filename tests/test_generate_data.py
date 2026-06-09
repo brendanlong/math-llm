@@ -125,6 +125,16 @@ class TestGenerationWorkers:
         )
         assert len(set(examples)) == len(examples)
 
+    def test_output_independent_of_num_workers(self):
+        """Same seed must produce the same dataset regardless of worker count."""
+        serial = generate_addition_examples_parallel(
+            num_examples=200, max_digits=2, seed=7, chunk_size=50, num_workers=1
+        )
+        parallel = generate_addition_examples_parallel(
+            num_examples=200, max_digits=2, seed=7, chunk_size=50, num_workers=4
+        )
+        assert serial == parallel
+
 
 class TestDataSplitting:
     """Tests for data splitting functionality."""
@@ -169,6 +179,18 @@ class TestDataSplitting:
         assert train1 == train2
         assert val1 == val2
         assert test1 == test2
+
+    def test_split_groups_duplicates(self):
+        """All copies of a duplicated example must land in the same split."""
+        examples = ["dup_a"] * 10 + ["dup_b"] * 5 + [f"example_{i}" for i in range(85)]
+
+        train, val, test = split_data(examples, train_ratio=0.8, val_ratio=0.1)
+
+        train_set, val_set, test_set = set(train), set(val), set(test)
+        assert not train_set & val_set
+        assert not train_set & test_set
+        assert not val_set & test_set
+        assert sorted(train + val + test) == sorted(examples)
 
     def test_split_different_seed(self):
         """Test that splits with a different random state are different."""

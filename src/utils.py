@@ -1,6 +1,7 @@
 """Shared utility functions for the math LLM project."""
 
 import logging
+import os
 from pathlib import Path
 
 import colorlog
@@ -37,8 +38,6 @@ def setup_logging(include_file_handler: bool = False) -> None:
     logger.addHandler(console_handler)
 
     if include_file_handler:
-        import os
-
         os.makedirs("logs", exist_ok=True)
         file_handler = logging.FileHandler("logs/training.log")
         file_handler.setFormatter(

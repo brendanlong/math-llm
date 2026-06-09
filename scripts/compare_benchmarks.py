@@ -19,8 +19,13 @@ class ChangeEntry:
     samples_percent: float
     iterations_change: float
     iterations_percent: float
-    speedup_change: float
-    speedup_percent: float
+    speedup_change: Optional[float]
+    speedup_percent: Optional[float]
+
+
+def _optional_float(value: str) -> Optional[float]:
+    """Parse a CSV field that may be empty (None serialized as '')."""
+    return float(value) if value else None
 
 
 @dataclass
@@ -37,8 +42,8 @@ class BenchmarkRow:
     optimal_iterations_per_second: float
     optimal_samples_per_second: float
     baseline_batch_size: int
-    baseline_samples_per_second: float
-    speedup: float
+    baseline_samples_per_second: Optional[float]
+    speedup: Optional[float]
     avg_sequence_length: float
 
     @property
@@ -64,8 +69,12 @@ class BenchmarkRow:
             optimal_iterations_per_second=float(row["optimal_iterations_per_second"]),
             optimal_samples_per_second=float(row["optimal_samples_per_second"]),
             baseline_batch_size=int(row["baseline_batch_size"]),
-            baseline_samples_per_second=float(row["baseline_samples_per_second"]),
-            speedup=float(row["speedup"]),
+            # These fields are None (serialized as "") when the batch-size-1
+            # baseline run failed
+            baseline_samples_per_second=_optional_float(
+                row["baseline_samples_per_second"]
+            ),
+            speedup=_optional_float(row["speedup"]),
             avg_sequence_length=float(row["avg_sequence_length"]),
         )
 
@@ -179,10 +188,14 @@ def main():
             else 0
         )
 
-        speedup_change = after.speedup - before.speedup
-        speedup_percent = (
-            (speedup_change / before.speedup) * 100 if before.speedup != 0 else 0
-        )
+        if before.speedup is not None and after.speedup is not None:
+            speedup_change = after.speedup - before.speedup
+            speedup_percent = (
+                (speedup_change / before.speedup) * 100 if before.speedup != 0 else 0.0
+            )
+        else:
+            speedup_change = None
+            speedup_percent = None
 
         changes.append(
             ChangeEntry(
@@ -236,10 +249,13 @@ def main():
             )
 
         if args.metric in ["speedup", "all"]:
-            print(
-                f"  Speedup:         {before.speedup:8.2f}x → {after.speedup:8.2f}x  "
-                f"Change: {format_change(before.speedup, after.speedup)}"
-            )
+            if before.speedup is not None and after.speedup is not None:
+                print(
+                    f"  Speedup:         {before.speedup:8.2f}x → {after.speedup:8.2f}x  "
+                    f"Change: {format_change(before.speedup, after.speedup)}"
+                )
+            else:
+                print("  Speedup:         N/A (baseline run failed)")
 
         if args.metric == "all":
             print(

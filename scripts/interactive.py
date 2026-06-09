@@ -16,26 +16,10 @@ from typing import Literal, Optional
 import torch
 import torch.nn.functional as F
 
-from src.config import find_checkpoint_in_output_dir, find_config_in_checkpoint
+from src.config import resolve_checkpoint
 from src.model import Model
-from src.tokenizer import END_TOKEN_ID, tokenizer
+from src.tokenizer import END_TOKEN_ID, ensure_begin_token, tokenizer
 from src.utils import get_device, load_model, setup_logging
-
-BEGIN_TOKEN = "<begin>"
-
-
-def ensure_begin_token(text: str) -> str:
-    """Prepend <begin> token to text if not already present.
-
-    Args:
-        text: Input text
-
-    Returns:
-        Text with <begin> token prepended if not already present
-    """
-    if not text.startswith(BEGIN_TOKEN):
-        return BEGIN_TOKEN + text
-    return text
 
 
 def greedy_generate_with_probs(
@@ -93,25 +77,6 @@ def greedy_generate_with_probs(
                 break
 
     return input_ids, probabilities
-
-
-def greedy_generate(
-    model: Model,
-    input_ids: torch.Tensor,
-    max_new_tokens: int = 20,
-) -> torch.Tensor:
-    """Generate tokens using greedy decoding (argmax).
-
-    Args:
-        model: The model to use for generation
-        input_ids: Initial input tokens of shape (1, seq_len)
-        max_new_tokens: Maximum number of new tokens to generate
-
-    Returns:
-        Generated tokens of shape (1, seq_len + num_generated)
-    """
-    generated_ids, _ = greedy_generate_with_probs(model, input_ids, max_new_tokens)
-    return generated_ids
 
 
 def get_probability_background(prob: float) -> str:
@@ -575,16 +540,16 @@ def main() -> None:
 
     # Model arguments
     parser.add_argument(
-        "--output-dir",
+        "--checkpoint",
         type=Path,
         required=True,
-        help="Path to output directory containing model checkpoint and config",
+        help="Path to model checkpoint file or directory containing one",
     )
     parser.add_argument(
         "--config",
         type=Path,
         default=None,
-        help="Path to model configuration YAML file (auto-detected from output dir if not specified)",
+        help="Path to model configuration YAML file (auto-detected from checkpoint dir if not specified)",
     )
 
     # Generation arguments
@@ -621,33 +586,13 @@ def main() -> None:
     device = get_device(args.device)
     logging.info(f"Using device: {device}")
 
-    # Check output directory exists
-    if not args.output_dir.exists():
-        logging.error(f"Output directory not found: {args.output_dir}")
-        sys.exit(1)
-
-    # Find checkpoint file in output directory
-    checkpoint_path = find_checkpoint_in_output_dir(args.output_dir)
-    if checkpoint_path is None:
-        logging.error(
-            f"No checkpoint file found in {args.output_dir}. "
-            "Expected model.safetensors or pytorch_model.bin."
-        )
+    # Resolve checkpoint file and config (accepts file or directory)
+    try:
+        checkpoint_path, config_path = resolve_checkpoint(args.checkpoint, args.config)
+    except FileNotFoundError as e:
+        logging.error(str(e))
         sys.exit(1)
     logging.info(f"Found checkpoint: {checkpoint_path}")
-
-    # Find or use provided config
-    if args.config is not None:
-        config_path = args.config
-    else:
-        config_path = find_config_in_checkpoint(args.output_dir)
-        if config_path is None:
-            logging.error(
-                "No model_config.yaml found in output directory. "
-                "Please specify --config path."
-            )
-            sys.exit(1)
-        logging.info(f"Auto-detected config: {config_path}")
 
     # Load model
     logging.info(f"Loading model from {checkpoint_path} with config {config_path}")

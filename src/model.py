@@ -371,9 +371,6 @@ class TransformerBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.attn_dropout = nn.Dropout(dropout)
 
-        # Precompute scaling factor
-        self._scale = 1.0 / math.sqrt(self.head_dim)
-
     def _manual_attention(
         self,
         q: torch.Tensor,
@@ -606,7 +603,7 @@ class BaseModel(nn.Module, ABC):
         self,
         input_ids: torch.Tensor,
         max_new_tokens: int = 20,
-        temperature: float = 1.0,
+        temperature: float = 0.0,
         top_k: Optional[int] = None,
     ) -> torch.Tensor:
         """Generate tokens autoregressively.
@@ -617,8 +614,9 @@ class BaseModel(nn.Module, ABC):
         Args:
             input_ids: Initial input tokens of shape (1, seq_len)
             max_new_tokens: Maximum number of new tokens to generate
-            temperature: Sampling temperature
-            top_k: Optional top-k sampling
+            temperature: Sampling temperature. 0 (the default) uses greedy
+                (argmax) decoding, which is deterministic.
+            top_k: Optional top-k sampling (ignored when temperature is 0)
 
         Returns:
             Generated tokens of shape (1, seq_len + num_generated)
@@ -632,39 +630,49 @@ class BaseModel(nn.Module, ABC):
                 "Call generate() separately for each sequence in a batch."
             )
 
+        was_training = self.training
         self.eval()
+        try:
+            for _ in range(max_new_tokens):
+                # Get predictions for current sequence
+                with torch.no_grad():
+                    outputs = self.forward(input_ids)
+                    # Extract logits (forward returns dict when labels provided, tensor otherwise)
+                    if isinstance(outputs, dict):
+                        logits = outputs["logits"]
+                    else:
+                        logits = outputs
 
-        for _ in range(max_new_tokens):
-            # Get predictions for current sequence
-            with torch.no_grad():
-                outputs = self.forward(input_ids)
-                # Extract logits (forward returns dict when labels provided, tensor otherwise)
-                if isinstance(outputs, dict):
-                    logits = outputs["logits"]
-                else:
-                    logits = outputs
+                    # Ensure logits is a tensor (not a tuple from attentions)
+                    assert isinstance(logits, torch.Tensor)
 
-                # Ensure logits is a tensor (not a tuple from attentions)
-                assert isinstance(logits, torch.Tensor)
+                    # Get logits for last token
+                    logits = logits[:, -1, :]
 
-                # Get logits for last token
-                logits = logits[:, -1, :] / temperature
+                    if temperature == 0.0:
+                        # Greedy decoding
+                        next_token = torch.argmax(logits, dim=-1, keepdim=True)
+                    else:
+                        logits = logits / temperature
 
-                # Apply top-k filtering if specified
-                if top_k is not None:
-                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                    logits[logits < v[:, [-1]]] = -float("inf")
+                        # Apply top-k filtering if specified
+                        if top_k is not None:
+                            v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                            logits[logits < v[:, [-1]]] = -float("inf")
 
-                # Sample next token
-                probs = F.softmax(logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
+                        # Sample next token
+                        probs = F.softmax(logits, dim=-1)
+                        next_token = torch.multinomial(probs, num_samples=1)
 
-                # Append to sequence
-                input_ids = torch.cat([input_ids, next_token], dim=1)
+                    # Append to sequence
+                    input_ids = torch.cat([input_ids, next_token], dim=1)
 
-                # Stop if end token is generated
-                if next_token.item() == END_TOKEN_ID:
-                    break
+                    # Stop if end token is generated
+                    if next_token.item() == END_TOKEN_ID:
+                        break
+        finally:
+            if was_training:
+                self.train()
 
         return input_ids
 

@@ -67,11 +67,26 @@ TOKEN_PATTERN = r"<begin>|</think>|<think>|<noop>|<end>|[0-9+=]"
 
 # Constants derived from vocabulary
 VOCAB_SIZE = len(VOCAB)
+BEGIN_TOKEN = "<begin>"
 END_TOKEN_ID = VOCAB["<end>"]
 BEGIN_TOKEN_ID = VOCAB["<begin>"]
 THINK_TOKEN_ID = VOCAB["<think>"]
 END_THINK_TOKEN_ID = VOCAB["</think>"]
 EQUALS_TOKEN_ID = VOCAB["="]
+
+
+def ensure_begin_token(text: str) -> str:
+    """Prepend <begin> token to text if not already present.
+
+    Args:
+        text: Input text
+
+    Returns:
+        Text with <begin> token prepended if not already present
+    """
+    if not text.startswith(BEGIN_TOKEN):
+        return BEGIN_TOKEN + text
+    return text
 
 
 def _create_tokenizer() -> PreTrainedTokenizerFast:

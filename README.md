@@ -1,38 +1,35 @@
 # Math LLM
 
+[![CI](https://github.com/brendanlong/math-llm/actions/workflows/ci.yml/badge.svg)](https://github.com/brendanlong/math-llm/actions/workflows/ci.yml)
+
 A minimal transformer model for learning basic arithmetic operations with chain-of-thought reasoning, starting with single-digit addition and scaling to multi-digit problems.
 
-Currently the model learns to mimic human-understable reasoning, but the goal is to make it learn to reason without instructions, and without RL, to try to learn something from how the model "naturally" learns to reason and if we can understand it.
+Currently the model learns to mimic human-understandable reasoning, but the goal is to make it learn to reason without instructions, and without RL, to try to learn something from how the model "naturally" learns to reason and if we can understand it.
 
-The current CoT looks like this:
+The current chain-of-thought shows recursive pairwise addition with digits reversed (least-significant first, which is easier for a left-to-right model):
 
 ```text
-➤ Enter expression: 99+21=
-💭 Generating completion for: 99+21=
-✨ Model output: 99+21=<think>9+1=10 9+2+1=11 0+1=1 1+0=1</think>110<end>
-🤔 Chain of thought:
-  99+21=
-  🧮 Think:
-    9+1=10 9+2+1=11 0+1=1 1+0=1
-  110<end>
-✅ Answer: 99+21=110
+<begin>99+21=<think>99+12=021</think>120<end>
+<begin>3+5+2=<think>3+5+2=8+2=01</think>10<end>
 ```
+
+Inside `<think>` the operands and intermediate results are digit-reversed (`99+12=021` means 99+21=120); the final answer after `</think>` is in normal digit order.
 
 ## Features
 
-- **Multiple architectures**: Standard transformer, Universal Transformer (weight sharing), Feedback Transformer
+- **Multiple architectures**: Standard transformer, Universal Transformer (weight sharing), Feedback Transformer, Mamba-style SSM (selective state space, no attention)
 - **Positional encodings**: Learned, Sinusoidal, RoPE (Rotary), PoPE (Polar)
 - **Attention variants**: Standard softmax, softmax1 (quiet attention with abstention)
+- **Layer norm placement**: Pre-LN or post-LN (`layer_norm_type` in config)
+- **Optimizers**: AdamW, ADOPT, Muon
 - **Attention visualization**: Export attention weights for analysis with BertViz/Ecco
+- **Mechanistic interpretability**: Logit lens, attention patterns, and causal tracing via `scripts/trace_model.py`
 
 ## Quick Start
 
 ```bash
-# Setup development environment
+# Setup development environment (installs dependencies with uv)
 ./setup.sh
-
-# Install package in development mode (required for imports to work)
-pip install -e .
 
 # Generate training data
 python scripts/generate_data.py
@@ -41,11 +38,15 @@ python scripts/generate_data.py
 python scripts/train.py --config config/standard-small.yaml
 
 # Test the model (config auto-detected from checkpoint directory)
-python scripts/evaluate.py --checkpoint checkpoints/model.safetensors
+python scripts/evaluate.py --checkpoint checkpoints/standard-small/
 
 # Try the model interactively
-python scripts/interactive.py --checkpoint checkpoints/model.safetensors
+python scripts/interactive.py --checkpoint checkpoints/standard-small/
 ```
+
+All inference scripts accept `--checkpoint` as either a checkpoint file
+(`model.safetensors`) or a directory containing one; the model config is
+auto-detected from `model_config.yaml` next to the checkpoint.
 
 ## Project Structure
 
@@ -53,30 +54,42 @@ python scripts/interactive.py --checkpoint checkpoints/model.safetensors
 math-llm/
 ├── config/                    # Model configuration YAML files
 │   ├── standard-small.yaml    # Base config with learned positional encoding
-│   ├── standard-small-sinusoidal.yaml
-│   ├── standard-small-rope.yaml
-│   ├── standard-small-pope.yaml
-│   ├── standard-small-softmax1.yaml
-│   ├── standard-small-pope-softmax1.yaml
-│   ├── universal-small.yaml   # Universal Transformer (weight sharing)
-│   ├── feedback-small.yaml    # Feedback Transformer
-│   └── ...                    # medium/large variants
+│   ├── standard-small-{sinusoidal,rope,pope}.yaml
+│   ├── standard-small-{softmax1,pope-softmax1}.yaml
+│   ├── standard-small-rope-preln.yaml      # Pre-LN variant
+│   ├── standard-small-rope-preln-2L8H.yaml # 2-layer / 8-head variant
+│   ├── universal-*.yaml       # Universal Transformer (weight sharing)
+│   ├── feedback-*.yaml        # Feedback Transformer
+│   ├── ssm-*.yaml             # Mamba-style SSM
+│   └── ...                    # xsmall/medium/large variants
 ├── scripts/
 │   ├── generate_data.py       # Data generation
 │   ├── train.py               # Training script
 │   ├── evaluate.py            # Evaluation script
 │   ├── interactive.py         # Interactive inference
-│   └── visualize_attention.py # Attention visualization
+│   ├── visualize_attention.py # Attention visualization (BertViz)
+│   ├── trace_model.py         # Mechanistic interpretability analyses
+│   ├── benchmark.py           # Training throughput benchmark
+│   ├── benchmark_dataloader.py# Data loading benchmark
+│   └── compare_benchmarks.py  # Compare two benchmark runs
 ├── notebooks/
 │   └── attention_visualization.ipynb  # Interactive attention analysis
 ├── src/
-│   ├── config.py              # Configuration loading
-│   ├── model.py               # Model architectures
+│   ├── config.py              # Configuration loading and checkpoint resolution
+│   ├── model.py               # Transformer architectures
+│   ├── ssm.py                 # Mamba-style SSM architecture
 │   ├── tokenizer.py           # Custom tokenizer
-│   └── data.py                # Data loading utilities
-├── data/                      # Generated datasets
-├── checkpoints/               # Model checkpoints
-└── logs/                      # Training logs
+│   ├── data.py                # Data loading utilities
+│   ├── generation.py          # Data generation utilities
+│   ├── training.py            # Trainer callbacks and metrics
+│   ├── optimizers.py          # Optimizer factory (AdamW/ADOPT/Muon)
+│   ├── activation_stats.py    # Activation statistics collection
+│   ├── types.py               # Shared type definitions
+│   └── utils.py               # Logging, device, and model loading helpers
+├── tests/                     # pytest test suite
+├── data/                      # Generated datasets (gitignored)
+├── checkpoints/               # Model checkpoints (gitignored)
+└── logs/                      # Training logs (gitignored)
 ```
 
 ## Usage
@@ -90,16 +103,25 @@ python scripts/generate_data.py --num-examples 100000 --max-digits 2
 python scripts/generate_data.py --num-examples 100000 --max-digits 3 --reversed-format
 ```
 
+Splits are leakage-free: all copies of a duplicated expression are assigned to
+the same split, so val/test never contain expressions seen in training.
+Generation output depends only on the seed and parameters, not on the number
+of workers.
+
 #### Data Generation Arguments
 
-- `--num-examples`: Number of examples to generate - default: `100000`
-- `--max-digits`: Maximum digits per operand - default: `3`
+- `--num-examples`: Number of examples to generate - default: `10000`
+- `--max-digits`: Maximum digits per operand - default: `2`
 - `--max-operands`: Maximum operands per expression - default: `3`
 - `--seed`: Random seed - default: `42`
 - `--output-dir`: Output directory - default: `data`
+- `--train-ratio`: Fraction of data for training - default: `0.8`
+- `--val-ratio`: Fraction of data for validation - default: `0.1`
+- `--num-workers`: Worker processes for generation - default: CPU count
 - `--no-include-cot`: Disable chain-of-thought reasoning
 - `--fixed-length-cot`: Pad CoT to fixed length with `<noop>` tokens
 - `--reversed-format`: Reverse digit order in operands and result (e.g., `8+21=02` for `8+12=20`). Automatically disables CoT.
+- `--zero-pad`: Zero-pad all numbers in each example to the same width
 
 ### Training
 
@@ -131,20 +153,21 @@ python scripts/train.py --config config/standard-small.yaml --output-dir checkpo
 **Model Configuration:**
 
 - `--config`: Path to model configuration YAML file (required)
-- `--max-length`: Maximum sequence length - default: `128`
+- `--max-length`: Maximum sequence length - default: longest example length from dataset metadata
 
 **Training Hyperparameters:**
 
 - `--batch-size`: Training batch size - default: `32`
 - `--eval-batch-size`: Evaluation batch size - default: `64`
-- `--learning-rate`: Learning rate - default: `1e-4`
+- `--learning-rate`: Learning rate - default: `1e-3`
 - `--weight-decay`: Weight decay - default: `0.01`
 - `--num-epochs`: Number of training epochs - default: `10`
 - `--warmup-steps`: Learning rate warmup steps - default: `500`
+- `--optimizer`: Optimizer (`adamw`, `adopt`, `muon`) - default: `adamw`
 
 **Data and I/O:**
 
-- `--data-dir`: Directory with train/val/test JSON files - default: `data`
+- `--data-dir`: Directory with train/val/test JSONL files - default: `data`
 - `--output-dir`: Checkpoint output directory - default: `checkpoints/<config-name>/`
 - `--num-workers`: Data loading workers - default: `4`
 
@@ -153,11 +176,16 @@ python scripts/train.py --config config/standard-small.yaml --output-dir checkpo
 - `--save-steps`: Save checkpoint every N steps - default: `1000`
 - `--eval-steps`: Evaluate every N steps - default: `1000`
 - `--logging-steps`: Log metrics every N steps - default: `100`
+- `--wandb-group`: W&B group name for organizing related runs
+- `--track-activation-stats`: Track activation statistics (kurtosis, outliers) during training
 
 **System Options:**
 
 - `--fp16`: Enable mixed precision training
 - `--no-wandb`: Disable Weights & Biases logging
+- `--no-torch-compile`: Disable torch.compile
+- `--profile`: Run a short profiling pass with torch.profiler instead of training
+- `--resume`: Resume training from existing checkpoint in output directory
 - `--seed`: Random seed for reproducibility - default: `42`
 
 #### Model Sizes
@@ -172,7 +200,7 @@ python scripts/train.py --config config/standard-small.yaml --output-dir checkpo
 
 Training generates several output files in the checkpoint directory:
 
-- `pytorch_model.bin`: Final trained model weights
+- `model.safetensors`: Final trained model weights
 - `model_config.yaml`: Model configuration (copied from input config)
 - `training_config.json`: Complete training configuration
 - `test_results.json`: Final evaluation metrics
@@ -185,14 +213,14 @@ The model configuration is automatically detected from the checkpoint directory 
 
 ```bash
 # Basic evaluation on test set (config auto-detected)
-python scripts/evaluate.py --checkpoint checkpoints/model.safetensors
+python scripts/evaluate.py --checkpoint checkpoints/standard-small/
 
-# Evaluate specific checkpoint
-python scripts/evaluate.py --checkpoint checkpoints/checkpoint-1000/model.safetensors
+# Evaluate specific checkpoint file
+python scripts/evaluate.py --checkpoint checkpoints/standard-small/checkpoint-1000/model.safetensors
 
 # Evaluate specific data file
 python scripts/evaluate.py \
-  --checkpoint checkpoints/model.safetensors \
+  --checkpoint checkpoints/standard-small/ \
   --data-path data/custom_test.jsonl
 
 # Override config for older checkpoints without model_config.yaml
@@ -203,7 +231,7 @@ python scripts/evaluate.py \
 
 # Save results to file
 python scripts/evaluate.py \
-  --checkpoint checkpoints/model.safetensors \
+  --checkpoint checkpoints/standard-small/ \
   --output-file results.json
 ```
 
@@ -211,7 +239,7 @@ python scripts/evaluate.py \
 
 **Required:**
 
-- `--checkpoint`: Path to model checkpoint file
+- `--checkpoint`: Path to model checkpoint file or directory containing one
 
 **Model Configuration:**
 
@@ -227,6 +255,8 @@ python scripts/evaluate.py \
 - `--batch-size`: Evaluation batch size - default: `64`
 - `--max-length`: Maximum sequence length - default: `128`
 - `--output-file`: Save results to JSON file
+- `--activation-stats`: Compute and save activation statistics
+- `--activation-stats-batches`: Max batches for activation stats - default: all
 
 **System:**
 
@@ -234,7 +264,7 @@ python scripts/evaluate.py \
 
 #### Metrics
 
-- **Exact Match Accuracy**: Percentage of completely correct arithmetic answers
+- **Exact Match Accuracy**: Percentage of completely correct arithmetic answers (greedy decoding, `<think>` sections excluded from comparison)
 - **Token-Level Accuracy**: Per-token prediction accuracy during teacher forcing
 - **Number of Examples**: Total examples evaluated
 
@@ -245,11 +275,14 @@ The model configuration is automatically detected from the checkpoint directory 
 
 ```bash
 # Basic interactive session (config auto-detected)
-python scripts/interactive.py --checkpoint checkpoints/model.safetensors
+python scripts/interactive.py --checkpoint checkpoints/standard-small/
+
+# Step-by-step mode showing top-5 next-token probabilities
+python scripts/interactive.py --checkpoint checkpoints/standard-small/ --mode probability
 
 # Override config for older checkpoints
 python scripts/interactive.py \
-  --checkpoint checkpoints/checkpoint-1000/model.safetensors \
+  --checkpoint checkpoints/standard-small/checkpoint-1000/model.safetensors \
   --config config/standard-medium.yaml \
   --max-new-tokens 15
 ```
@@ -258,7 +291,7 @@ python scripts/interactive.py \
 
 **Required:**
 
-- `--checkpoint`: Path to model checkpoint file
+- `--checkpoint`: Path to model checkpoint file or directory containing one
 
 **Model Configuration:**
 
@@ -267,31 +300,13 @@ python scripts/interactive.py \
 **Generation Settings:**
 
 - `--max-new-tokens`: Maximum tokens to generate - default: `512`
+- `--mode`: `normal` (default) or `probability` (step-by-step with top-5 predictions)
 
 **System:**
 
 - `--device`: Device to use (`cuda`, `cpu`, `auto`) - default: `auto`
 
-#### Usage Examples
-
-The interactive script accepts various input formats:
-
-```text
-➤ Enter expression: 3+5=
-✨ Model completion: '3+5=' → '3+5=8<end>'
-
-➤ Enter expression: 12+34=
-✨ Model completion: '12+34=' → '12+34=46<end>'
-
-➤ Enter expression: 7+
-✨ Model completion: '7+' → '7+3=10<end>'
-```
-
-**Input Validation:**
-
-- Only accepts digits (0-9), plus sign (+), and equals sign (=)
-- Provides helpful error messages for invalid input
-- Type 'quit' or 'exit' to end the session, or use Ctrl+C/Ctrl+D
+The session uses greedy decoding and displays per-token confidence; type 'quit' or 'exit' to end the session, or use Ctrl+C/Ctrl+D.
 
 ### Visualizing Attention with BertViz
 
@@ -319,16 +334,29 @@ For interactive exploration, use the Jupyter notebook:
 jupyter lab notebooks/attention_visualization.ipynb
 ```
 
+### Mechanistic Interpretability Tracing
+
+Run logit lens, attention pattern, and causal tracing analyses on a trained standard-architecture model:
+
+```bash
+python scripts/trace_model.py \
+  --checkpoint checkpoints/standard-small-rope-preln/ \
+  --prompt "<begin>10+9=" \
+  --output-dir traces/
+```
+
+This produces matplotlib heatmaps and a text summary showing how predictions evolve through layers, what each attention head attends to, and which (layer, position) activations are causally important.
+
 ## Model Details
 
-- **Architecture**: Small transformer decoder (1M-10M parameters)
-- **Vocabulary**: 17 tokens (digits 0-9, +, =, <end>, <think>, </think>, <noop>, <begin>)
+- **Architecture**: Small transformer decoder (1M-10M parameters), plus Universal/Feedback/SSM variants
+- **Vocabulary**: 17 tokens (digits 0-9, `+`, `=`, `<end>`, `<think>`, `</think>`, `<noop>`, `<begin>`)
 - **Context Length**: 128 tokens (sufficient for chain-of-thought reasoning)
 - **Task**: Next-token prediction on arithmetic expressions with reasoning
-- **Formats**:
-  - Simple: `"3+5=8<end>"`
-  - With reasoning: `"658+189=<think>8+9=17 5+8+1=14 6+1+1=8</think>847<end>"`
-  - Reversed: `"8+21=02<end>"` (digits reversed for easier left-to-right processing)
+- **Formats** (every example starts with `<begin>`):
+  - Simple: `"<begin>3+5=8<end>"`
+  - With reasoning: `"<begin>99+21=<think>99+12=021</think>120<end>"` (digits inside `<think>` are reversed)
+  - Reversed: `"<begin>8+21=02<end>"` (digits reversed for easier left-to-right processing)
 
 ### Positional Encodings
 
@@ -370,7 +398,7 @@ for layer_idx, attn in enumerate(attentions):
 
 ## Hardware Requirements
 
-- **GPU**: CUDA-capable (tested on RTX3060 with 12GB VRAM)
+- **GPU**: CUDA-capable (tested on RTX 3060 with 8GB VRAM)
 - **Memory**: 8GB+ system RAM recommended
 - **Storage**: ~1GB for datasets and checkpoints
 
@@ -378,10 +406,12 @@ for layer_idx, attn in enumerate(attentions):
 
 Training progress is logged to Weights & Biases. Key metrics:
 
-- Exact match accuracy (complete answer correctness)
 - Token-level accuracy
 - Loss curves
 - Learning rate schedules
+- Optional activation statistics (with `--track-activation-stats`)
+
+Exact match accuracy is computed by `scripts/evaluate.py` after training.
 
 ## Results
 
@@ -401,5 +431,9 @@ Training progress is logged to Weights & Biases. Key metrics:
 - All positional encodings (sinusoidal, RoPE, PoPE) dramatically outperform learned embeddings on this task
 - PoPE, sinusoidal, and RoPE perform essentially identically (~99.9%)
 - The softmax1 variant doesn't significantly impact accuracy on this task
+
+Note: these results predate the train/test leakage fix in data splitting
+(duplicated expressions could previously appear in both train and test), so
+absolute numbers are likely optimistic; relative comparisons should still hold.
 
 See [DESIGN.md](DESIGN.md) for architectural details and design decisions.

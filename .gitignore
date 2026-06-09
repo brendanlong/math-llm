@@ -181,5 +181,4 @@ checkpoints/
 logs/
 wandb/
 benchmark_results/
-notebooks/
 viz/

@@ -2,6 +2,7 @@
 
 import multiprocessing
 import random
+from typing import Optional
 
 from .tokenizer import tokenizer
 
@@ -193,6 +194,9 @@ def generate_addition_examples(
     return examples
 
 
+GENERATION_CHUNK_SIZE = 10_000
+
+
 def generate_addition_examples_parallel(
     num_examples: int,
     max_digits: int = 3,
@@ -202,9 +206,14 @@ def generate_addition_examples_parallel(
     include_chain_of_thought: bool = True,
     reversed_format: bool = False,
     zero_pad: bool = False,
-    num_workers: int | None = None,
+    num_workers: Optional[int] = None,
+    chunk_size: int = GENERATION_CHUNK_SIZE,
 ) -> list[str]:
     """Generate addition examples using multiple processes.
+
+    Work is divided into fixed-size chunks with deterministic per-chunk seeds,
+    so the output depends only on the seed (and generation parameters), not on
+    num_workers or the machine's CPU count.
 
     Args:
         num_examples: Total number of examples to generate
@@ -216,6 +225,7 @@ def generate_addition_examples_parallel(
         reversed_format: Whether to reverse digit order (no CoT)
         zero_pad: Whether to zero-pad all numbers in each example to the same width
         num_workers: Number of worker processes (default: CPU count)
+        chunk_size: Number of examples per work chunk
 
     Returns:
         List of generated examples
@@ -223,44 +233,32 @@ def generate_addition_examples_parallel(
     if num_workers is None:
         num_workers = multiprocessing.cpu_count()
 
-    # If we have only one worker, use serial generation
-    if num_workers == 1:
-        return generate_addition_examples(
-            num_examples=num_examples,
-            max_digits=max_digits,
-            seed=seed,
-            max_operands=max_operands,
-            fixed_length_cot=fixed_length_cot,
-            include_chain_of_thought=include_chain_of_thought,
-            reversed_format=reversed_format,
-            zero_pad=zero_pad,
-        )
-
-    # Calculate examples per worker
-    examples_per_worker = num_examples // num_workers
-    remaining_examples = num_examples % num_workers
-
-    # Create work chunks with different seeds for each worker
+    # Build fixed-size work chunks with deterministic per-chunk seeds
     work_chunks = []
-    for i in range(num_workers):
-        chunk_size = examples_per_worker + (1 if i < remaining_examples else 0)
-        if chunk_size > 0:
-            work_chunks.append(
-                (
-                    chunk_size,
-                    max_digits,
-                    seed + i,  # Different seed for each worker
-                    max_operands,
-                    fixed_length_cot,
-                    include_chain_of_thought,
-                    reversed_format,
-                    zero_pad,
-                )
+    remaining = num_examples
+    chunk_index = 0
+    while remaining > 0:
+        size = min(chunk_size, remaining)
+        work_chunks.append(
+            (
+                size,
+                max_digits,
+                seed + chunk_index,
+                max_operands,
+                fixed_length_cot,
+                include_chain_of_thought,
+                reversed_format,
+                zero_pad,
             )
+        )
+        remaining -= size
+        chunk_index += 1
 
-    # Generate examples in parallel
-    with multiprocessing.Pool(processes=len(work_chunks)) as pool:
-        results = pool.starmap(generate_addition_examples, work_chunks)
+    if num_workers == 1 or len(work_chunks) <= 1:
+        results = [generate_addition_examples(*chunk) for chunk in work_chunks]
+    else:
+        with multiprocessing.Pool(processes=min(num_workers, len(work_chunks))) as pool:
+            results = pool.starmap(generate_addition_examples, work_chunks)
 
     # Flatten results
     examples = []
@@ -276,27 +274,52 @@ def split_data(
     val_ratio: float = 0.1,
     seed: int = 42,
 ) -> tuple[list[str], list[str], list[str]]:
-    """Split data into train/validation/test sets.
+    """Split data into train/validation/test sets without cross-split leakage.
+
+    Examples are sampled with replacement, so the input can contain duplicates.
+    All copies of a duplicated example are assigned to the same split so that
+    validation and test never contain an expression seen during training.
+    Split sizes approximate the requested ratios of total examples (including
+    duplicates).
 
     Args:
-        examples: List of examples to split
+        examples: List of examples to split (may contain duplicates)
         train_ratio: Fraction for training set
         val_ratio: Fraction for validation set (test gets remainder)
+        seed: Random seed for shuffling
 
     Returns:
         Tuple of (train_examples, val_examples, test_examples)
     """
-    total = len(examples)
-    train_size = int(total * train_ratio)
-    val_size = int(total * val_ratio)
+    counts: dict[str, int] = {}
+    for example in examples:
+        counts[example] = counts.get(example, 0) + 1
 
-    # Shuffle examples before splitting
-    shuffled = examples.copy()
+    unique_examples = list(counts.keys())
     r = random.Random(seed)
-    r.shuffle(shuffled)
+    r.shuffle(unique_examples)
 
-    train_examples = shuffled[:train_size]
-    val_examples = shuffled[train_size : train_size + val_size]
-    test_examples = shuffled[train_size + val_size :]
+    total = len(examples)
+    train_target = total * train_ratio
+    val_target = total * (train_ratio + val_ratio)
+
+    train_examples: list[str] = []
+    val_examples: list[str] = []
+    test_examples: list[str] = []
+    assigned = 0
+    for example in unique_examples:
+        count = counts[example]
+        if assigned < train_target:
+            train_examples.extend([example] * count)
+        elif assigned < val_target:
+            val_examples.extend([example] * count)
+        else:
+            test_examples.extend([example] * count)
+        assigned += count
+
+    # Shuffle within each split so duplicate copies aren't adjacent
+    r.shuffle(train_examples)
+    r.shuffle(val_examples)
+    r.shuffle(test_examples)
 
     return train_examples, val_examples, test_examples

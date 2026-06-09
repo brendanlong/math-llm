@@ -192,3 +192,45 @@ def find_checkpoint_in_output_dir(output_dir: Path) -> Optional[Path]:
         return pytorch_path
 
     return None
+
+
+def resolve_checkpoint(
+    path: Path,
+    config_path: Optional[Path] = None,
+) -> tuple[Path, Path]:
+    """Resolve a checkpoint argument to (checkpoint_file, config_file).
+
+    Accepts either a checkpoint file (model.safetensors / pytorch_model.bin)
+    or a directory containing one. The model config is auto-detected from the
+    checkpoint directory unless explicitly provided.
+
+    Args:
+        path: Path to a checkpoint file or a directory containing one
+        config_path: Optional explicit path to model_config.yaml
+
+    Returns:
+        Tuple of (checkpoint_file, config_file)
+
+    Raises:
+        FileNotFoundError: If no checkpoint or config can be found
+    """
+    if path.is_dir():
+        checkpoint_path = find_checkpoint_in_output_dir(path)
+        if checkpoint_path is None:
+            raise FileNotFoundError(
+                f"No model.safetensors or pytorch_model.bin found in {path}"
+            )
+    elif path.is_file():
+        checkpoint_path = path
+    else:
+        raise FileNotFoundError(f"Checkpoint not found: {path}")
+
+    if config_path is None:
+        config_path = find_config_in_checkpoint(checkpoint_path)
+        if config_path is None:
+            raise FileNotFoundError(
+                f"No model_config.yaml found near {checkpoint_path}. "
+                "Specify --config explicitly."
+            )
+
+    return checkpoint_path, config_path
